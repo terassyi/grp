@@ -1,0 +1,55 @@
+version: '3'
+services:
+  h1:
+    build: ../docker/alpine
+    tty: true
+    privileged: true
+    volumes:
+      - ./h1/data:/tmp/data
+    networks:
+      - link0
+  h2:
+    build: ../docker/alpine
+    tty: true
+    privileged: true
+    volumes:
+      - ./h2/data:/tmp/data
+    networks:
+      - link2
+  pe1:
+    build: ../docker/frr
+    tty: true
+    privileged: true
+    volumes:
+      - ./pe1/data:/tmp/data
+    networks:
+      - link0
+      - link1
+  pe2:
+    build: ../docker/frr
+    tty: true
+    privileged: true
+    volumes:
+      - ./pe2/data:/tmp/data
+    networks:
+      - link1
+      - link2
+networks:
+  link0:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.0.0.0/24
+  link1:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.0.1.0/24
+  link2:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.0.2.0/24

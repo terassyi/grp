@@ -1,0 +1,102 @@
+#                                                                                                                                         
+#  192.168.0.0/24                                                                                                                       192.168.5.0/24                   
+#       |                                                                                                                                     |    
+#       |                                                                                                                                     | 
+#       |                __R1_____                                                                                 ____R3___                  |                                                         
+#       |_________.2____|        | _.3________________________________________________________________________.2__|        |_.3_______________|                                                                                                          
+#       |              |________|                  192.168.1.0/24                                                |________|                   |                                      
+#       |                   | .2                                                                                       | .3                   |                     
+#       |                   |                                                                                          |                      |                   
+#       |                   | 192.168.2.0/24                                                           192.168.3.0/24  |                      |          ___R5___         
+#       |                   |                                                                                          |                      |______.2_|        |            
+#       |                   |                        ___R2___                          ___R4___                        |                      |         |________|                      
+#       |                   |____________________.3_|        |_.2__________________.3_|        |_.2____________________|                      |                              
+#       |                                           |________|     192.168.4.0/24     |________|                                              |                                       
+#       |                                                                                                                                     |     
+#       |                                                                                                                                     | 
+#       |                                                                                                                                     |     
+
+version: '3'
+services:
+  r1:
+    build: ../docker/grp/
+    volumes:
+      - ../../:/go/grp
+    # build: ../docker/bird/
+    # build: ../docker/frr/
+    tty: true
+    privileged: true
+    networks:
+      - link0
+      - link1
+      - link2
+      # link0:
+      #   ipv4_address: 192.168.0.1
+      # link1:
+      #   ipv4_address: 192.168.1.254
+  r2: 
+    build: ../docker/frr/
+    tty: true
+    privileged: true
+    networks:
+      - link2
+      - link4
+  r3:
+    build: ../docker/frr/
+    tty: true
+    privileged: true
+    networks:
+      - link1
+      - link3
+      - link5
+  r4:
+    build: ../docker/frr/
+    tty: true
+    privileged: true
+    networks:
+      - link3
+      - link4
+  r5:
+    build: ../docker/frr/
+    tty: true
+    privileged: true
+    networks:
+      - link5
+
+networks:
+  link0:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.0.0/24
+  link1:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.1.0/24
+  link2:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.2.0/24
+  link3:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.3.0/24
+  link4:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.4.0/24
+  link5:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.5.0/24

@@ -1,0 +1,26 @@
+version: '3'
+services:
+  pe1:
+    build: ../docker/grp
+    tty: true
+    privileged: true
+    volumes:
+      - ../../:/go/grp
+      - ./pe1/data:/tmp/data
+    networks:
+      - link0
+  pe2:
+    build: ../docker/frr
+    tty: true
+    privileged: true
+    volumes:
+      - ./pe2/data:/tmp/data
+    networks:
+      - link0
+networks:
+  link0:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.1.0.0/24
