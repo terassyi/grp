@@ -3,7 +3,6 @@ package bgp
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -16,7 +15,20 @@ var (
 )
 
 var (
-	ErrInvalidMessageType error = errors.New("Invalid Message Type")
+	ErrInvalidBGPMaker      *ErrorCode = &ErrorCode{Code: MESSAGE_HEADER_ERROR, Subcode: CONNECTION_NOT_SYNCHRONIZED}
+	ErrInvalidMessageLength *ErrorCode = &ErrorCode{Code: MESSAGE_HEADER_ERROR, Subcode: BAD_MESSAGE_LENGTH}
+	ErrInvalidMessageType   *ErrorCode = &ErrorCode{Code: MESSAGE_HEADER_ERROR, Subcode: BAD_MESSAGE_TYPE}
+
+	ErrOpenUnsupportedVersion   *ErrorCode = &ErrorCode{Code: OPEN_MESSAGE_ERROR, Subcode: UNSUPPORTED_VERSION_NUMBER}
+	ErrOpenInvalidPeerAS        *ErrorCode = &ErrorCode{Code: OPEN_MESSAGE_ERROR, Subcode: BAD_PEER_AS}
+	ErrOpenUnacceptableHoldTime *ErrorCode = &ErrorCode{Code: OPEN_MESSAGE_ERROR, Subcode: UNACCEPTABLE_HOLD_TIME}
+
+	ErrFiniteStateMachineError *ErrorCode = &ErrorCode{Code: FINITE_STATE_MACHINE_ERROR, Subcode: 0}
+)
+
+const (
+	MINIMUM_MESSAGE_LENGTH uint16 = 19
+	MAXIMUM_MESSAGE_LENGTH uint16 = 4096
 )
 
 type Packet struct {
@@ -331,6 +343,21 @@ func (h *Header) Decode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func (h *Header) Validate() *ErrorCode {
+	if h.Maker != BGP_MARKER {
+		return ErrInvalidBGPMaker
+	}
+	if h.Length < MINIMUM_MESSAGE_LENGTH || h.Length > MAXIMUM_MESSAGE_LENGTH {
+		return ErrInvalidMessageLength
+	}
+	switch h.Type {
+	case OPEN, KEEPALIVE, UPDATE, NOTIFICATION:
+		return nil
+	default:
+		return ErrInvalidMessageType
+	}
+}
+
 func ParseOpenMsg(data []byte) (*Open, error) {
 	type openNoOpt struct {
 		Version    uint8
@@ -476,6 +503,21 @@ func (o *Open) Decode(l int) ([]byte, error) {
 		}
 	}
 	return buf.Bytes(), nil
+}
+
+func (o *Open) Validate() *ErrorCode {
+	if o.Version != uint8(VERSION) {
+		return ErrOpenUnsupportedVersion
+	}
+	if o.AS == 0 {
+		// TODO: add more validation conditions.
+		return ErrOpenInvalidPeerAS
+	}
+	if o.HoldTime < 2 {
+		return ErrOpenUnacceptableHoldTime
+	}
+	// TODO: Options validation
+	return nil
 }
 
 func (o *Open) Dump() string {

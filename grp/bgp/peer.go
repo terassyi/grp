@@ -110,8 +110,9 @@ import (
 //          ---------------------------------------------------------------
 
 type peer struct {
-	local          net.IP
+	neighbor       *neighbor
 	addr           net.IP
+	port           int
 	link           netlink.Link
 	as             int
 	holdTime       time.Duration
@@ -137,8 +138,8 @@ const (
 
 func newPeer(logger log.Logger, link netlink.Link, local, addr net.IP, as int) *peer {
 	return &peer{
-		local:          local,
-		addr:           addr,
+		neighbor:       newNeighbor(addr, as),
+		addr:           local,
 		link:           link,
 		as:             as,
 		holdTime:       DEFAULT_HOLD_TIME_INTERVAL,
@@ -161,12 +162,14 @@ func (p *peer) poll(ctx context.Context) {
 		for {
 			select {
 			case <-p.connRetryTimer.tick().C:
-				p.logger.Infof("peer[%s] Connect Retry Timer is Expired.\n", p.addr)
+				p.logger.Infof("peer[%s] Connect Retry Timer is Expired.\n", p.neighbor.addr)
 				p.enqueueEvent(&connRetryTimerExpired{})
 			case <-p.keepAliveTimer.tick().C:
-				p.logger.Infof("peer[%s] Hold Timer is Expired.\n", p.addr)
+				p.logger.Infof("peer[%s] Keep Alive Timer is Expired.\n", p.neighbor.addr)
+				p.enqueueEvent(&keepaliveTimerExpired{})
 			case <-p.holdTimer.tick().C:
-				p.logger.Infof("peer[%s] Keep Alive Timer is Expired.\n", p.addr)
+				p.logger.Infof("peer[%s] Hold Timer is Expired.\n", p.neighbor.addr)
+				p.enqueueEvent(&holdTimerExpired{})
 			case <-ctx.Done():
 				return
 			}
@@ -231,6 +234,24 @@ func (p *peer) enqueueEvent(evt event) error {
 
 func (p *peer) finishInitiate(conn *net.TCPConn) error {
 	p.conn = conn
+	// net.Conn must be *net.TCPConn
+	_, lport, err := SplitAddrAndPort(conn.LocalAddr().String())
+	if err != nil {
+		return err
+	}
+	raddr, rport, err := SplitAddrAndPort(conn.RemoteAddr().String())
+	if err != nil {
+		return err
+	}
+	if p.port == 0 {
+		p.port = lport
+	}
+	if !raddr.Equal(p.neighbor.addr) {
+		return ErrInvalidNeighborAddress
+	}
+	if p.neighbor.port == 0 {
+		p.neighbor.port = rport
+	}
 	p.connRetryTimer.stop()
 	return nil
 }
@@ -239,7 +260,7 @@ func (p *peer) sendOpenMsg(options []*Option) error {
 	builder := Builder(OPEN)
 	builder.AS(p.as)
 	builder.HoldTime(p.holdTime)
-	builder.Identifier(p.local)
+	builder.Identifier(p.addr) // TODO: Identifier is specified by peer. it shall be the largest address in the host.
 	builder.Options(options)
 	p.tx <- builder.Packet()
 	return nil
@@ -266,6 +287,11 @@ func (p *peer) handleConn(ctx context.Context) error {
 				if _, err := p.conn.Write(data); err != nil {
 					p.logger.Errorf("TX handler: write to transport connection %s", err)
 					continue
+				}
+				if msg.Header.Type == NOTIFICATION {
+					// close connection
+					p.conn.Close()
+					cancel()
 				}
 			case <-childCtx.Done():
 				p.logger.Infof("Stop TX handle.")
@@ -315,6 +341,13 @@ func (p *peer) handleConn(ctx context.Context) error {
 		}
 	}()
 	return nil
+}
+
+func (p *peer) notifyError(err *ErrorCode) error {
+	builder := Builder(NOTIFICATION)
+	builder.ErrorCode(err)
+	p.tx <- builder.Packet()
+	return err
 }
 
 func (p *peer) changeState(et eventType) error {
@@ -378,9 +411,11 @@ func (p *peer) changeState(et eventType) error {
 			p.state = IDLE
 		}
 	default:
-		return ErrInvalidBgpState
+		return p.notifyError(ErrFiniteStateMachineError)
 	}
-	p.logger.Infof("change state %s -> %s\n", old, p.state)
+	if old != p.state {
+		p.logger.Infof("change state %s -> %s\n", old, p.state)
+	}
 	return nil
 }
 
@@ -390,37 +425,30 @@ func (p *peer) moveState(state state) error {
 	case IDLE:
 		if state == IDLE || state == CONNECT {
 			p.state = state
-			p.logger.Infof("move state %s -> %s\n", old, p.state)
-			return nil
 		}
 	case CONNECT, ACTIVE:
 		if state == IDLE || state == CONNECT || state == ACTIVE || state == OPEN_SENT {
 			p.state = state
-			p.logger.Infof("move state %s -> %s\n", old, p.state)
-			return nil
 		}
 	case OPEN_SENT:
 		if state == IDLE || state == ACTIVE || state == OPEN_SENT || state == OPEN_CONFIRM {
 			p.state = state
-			p.logger.Infof("move state %s -> %s\n", old, p.state)
-			return nil
 		}
 	case OPEN_CONFIRM:
 		if state == IDLE || state == OPEN_CONFIRM || state == ESTABLISHED {
 			p.state = state
-			p.logger.Infof("move state %s -> %s\n", old, p.state)
-			return nil
 		}
 	case ESTABLISHED:
 		if state == IDLE || state == ESTABLISHED {
 			p.state = state
-			p.logger.Infof("move state %s -> %s\n", old, p.state)
-			return nil
 		}
 	default:
 		return ErrInvalidBgpState
 	}
-	return ErrUnreachableState
+	if old != p.state {
+		p.logger.Infof("Move state %s -> %s", old, p.state)
+	}
+	return nil
 }
 
 func (p *peer) isValidEvent(et eventType) (bool, error) {
@@ -488,14 +516,14 @@ func (p *peer) stopEvent() error {
 func (p *peer) transOpenEvent(ctx context.Context) error {
 	switch p.state {
 	case CONNECT:
-		conn, err := net.DialTCP("tcp", &net.TCPAddr{IP: p.local}, &net.TCPAddr{IP: p.addr, Port: PORT})
+		conn, err := net.DialTCP("tcp", &net.TCPAddr{IP: p.addr}, &net.TCPAddr{IP: p.neighbor.addr, Port: PORT})
 		if err != nil {
 			// restart connect retry timer
 			p.logger.Infoln("peer connection is not open.")
 			p.connRetryTimer.restart()
 			// wait for connecting from remote peer
 			if !p.listenerOpen {
-				l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: p.local, Port: PORT})
+				l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: p.addr, Port: PORT})
 				if err != nil {
 					return err
 				}
@@ -553,7 +581,16 @@ func (p *peer) transClosedEvent() error {
 }
 
 func (p *peer) transOpenFailedEvent() error {
-	return nil
+	switch p.state {
+	case CONNECT:
+		p.connRetryTimer.restart()
+	case ACTIVE:
+		if p.conn != nil {
+			p.conn.Close()
+		}
+		p.connRetryTimer.restart()
+	}
+	return p.changeState(event_type_bgp_trans_conn_open_failed)
 }
 
 func (p *peer) transFatalErrorEvent() error {
@@ -575,7 +612,10 @@ func (p *peer) connRetryTimerExpiredEvent() error {
 }
 
 func (p *peer) holdTimerExpiredEvent() error {
-	return nil
+	builder := Builder(NOTIFICATION)
+	builder.ErrorCode(&ErrorCode{Code: HOLD_TIMER_EXPIRED, Subcode: 0})
+	p.tx <- builder.Packet()
+	return p.changeState(event_type_hold_timer_expired)
 }
 
 func (p *peer) keepaliveTimerExpiredEvent() error {
@@ -584,7 +624,8 @@ func (p *peer) keepaliveTimerExpiredEvent() error {
 		// send KEEPALIVE
 		p.keepAliveTimer.restart()
 		builder := Builder(KEEPALIVE)
-		p.rx <- builder.Packet()
+		p.tx <- builder.Packet()
+		p.logger.Infof("Send KeepAlive")
 	}
 	return nil
 }
@@ -592,12 +633,24 @@ func (p *peer) keepaliveTimerExpiredEvent() error {
 func (p *peer) recvOpenMsgEvent(evt event) error {
 	switch p.state {
 	case OPEN_SENT:
+		msg := evt.(*recvOpenMsg)
+		op := GetMessage[*Open](msg.msg.Message)
+		if err := op.Validate(); err != nil {
+			// OPEN failed
+			return p.notifyError(err)
+		}
 		// Process OPEN is ok
-		//
+		p.keepAliveTimer.start()
+		builder := Builder(KEEPALIVE)
+		p.tx <- builder.Packet()
 	default:
 		// Close transport connection
 		// Release resources
+		p.release()
 		// Send NOTIFICATION
+		builder := Builder(NOTIFICATION)
+		builder.ErrorCode(ErrFiniteStateMachineError)
+		p.tx <- builder.Packet()
 	}
 	return p.changeState(event_type_recv_open_msg)
 }
@@ -610,8 +663,6 @@ func (p *peer) recvKeepAliveMsgEvent(evt event) error {
 		p.holdTimer.restart()
 	case ESTABLISHED:
 		p.holdTimer.restart()
-		builder := Builder(KEEPALIVE)
-		p.rx <- builder.Packet()
 	default:
 
 	}
@@ -619,13 +670,15 @@ func (p *peer) recvKeepAliveMsgEvent(evt event) error {
 }
 
 func (p *peer) recvUpdateMsgEvent(evt event) error {
-	return nil
+	p.holdTimer.restart()
+	return p.changeState(event_type_recv_update_msg)
 }
 
 func (p *peer) recvNotificationMsgEvent(evt event) error {
 	msg := evt.(*recvNotificationMsg)
 	p.conn.Close()
 	p.logger.Errorln(GetMessage[*Notification](msg.msg.Message).ErrorCode)
+	p.release()
 	return p.changeState(event_type_recv_notification_msg)
 }
 
@@ -633,6 +686,13 @@ func (p *peer) recvNotificationMsgEvent(evt event) error {
 func (p *peer) init() error {
 	p.initialized = true
 	p.connRetryTimer.start()
+	return nil
+}
+
+// release resources
+func (p *peer) release() error {
+	p.keepAliveTimer.stop()
+	p.holdTimer.stop()
 	return nil
 }
 

@@ -26,18 +26,19 @@ func TestPeerHandleEvent(t *testing.T) {
 }
 
 func TestPeerChangeState(t *testing.T) {
+	logger, _ := log.New(log.NoLog, "")
 	for _, d := range []struct {
 		peer   *peer
 		events []eventType
 		result state
 	}{
 		{
-			peer:   &peer{state: IDLE},
+			peer:   &peer{state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start, event_type_bgp_trans_conn_open, event_type_recv_open_msg, event_type_recv_keepalive_msg},
 			result: ESTABLISHED,
 		},
 		{
-			peer: &peer{state: IDLE},
+			peer: &peer{state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,
@@ -46,7 +47,7 @@ func TestPeerChangeState(t *testing.T) {
 			result: ESTABLISHED,
 		},
 		{
-			peer: &peer{state: IDLE},
+			peer: &peer{state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_start,
@@ -58,12 +59,12 @@ func TestPeerChangeState(t *testing.T) {
 			result: ESTABLISHED,
 		},
 		{
-			peer:   &peer{state: IDLE},
+			peer:   &peer{state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start, event_type_bgp_stop},
 			result: IDLE,
 		},
 		{
-			peer: &peer{state: IDLE},
+			peer: &peer{state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open,
 				event_type_recv_keepalive_msg,
@@ -71,7 +72,7 @@ func TestPeerChangeState(t *testing.T) {
 			result: IDLE,
 		},
 		{
-			peer: &peer{state: IDLE},
+			peer: &peer{state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,
@@ -85,7 +86,7 @@ func TestPeerChangeState(t *testing.T) {
 			result: ESTABLISHED,
 		},
 		{
-			peer: &peer{state: IDLE},
+			peer: &peer{state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,
@@ -103,7 +104,7 @@ func TestPeerChangeState(t *testing.T) {
 			result: ESTABLISHED,
 		},
 		{
-			peer: &peer{state: IDLE},
+			peer: &peer{state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,

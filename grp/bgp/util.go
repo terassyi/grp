@@ -2,6 +2,7 @@ package bgp
 
 import (
 	"net"
+	"strconv"
 )
 
 func lookupLocalAddr(remote net.IP) (int, net.IP, error) {
@@ -24,4 +25,17 @@ func lookupLocalAddr(remote net.IP) (int, net.IP, error) {
 		}
 	}
 	return -1, nil, ErrGivenAddrIsNotNeighbor
+}
+
+func SplitAddrAndPort(host string) (net.IP, int, error) {
+	// Expected host format: ipv4:port or [ipv6]:port
+	a, p, err := net.SplitHostPort(host)
+	if err != nil {
+		return nil, -1, err
+	}
+	pn, err := strconv.Atoi(p)
+	if err != nil {
+		return nil, -1, err
+	}
+	return net.ParseIP(a), pn, nil
 }

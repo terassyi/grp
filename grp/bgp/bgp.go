@@ -15,7 +15,8 @@ import (
 // https://www.rfc-editor.org/rfc/pdfrfc/rfc1771.txt.pdf
 
 const (
-	PORT int = 179
+	PORT    int = 179
+	VERSION int = 4
 )
 
 type Bgp struct {
@@ -70,6 +71,7 @@ type message struct {
 var (
 	ErrInvalidBgpState            error = errors.New("Invalid BGP state.")
 	ErrPeerAlreadyRegistered      error = errors.New("Peer already registered.")
+	ErrInvalidNeighborAddress     error = errors.New("Invalid neighbor address.")
 	ErrInvalidBgpApiArguments     error = errors.New("Invalid BGP API arguments.")
 	ErrUnknownBgpApiRequest       error = errors.New("Unknown BGP API request.")
 	ErrInvalidEventType           error = errors.New("Invalid BGP Event type.")
