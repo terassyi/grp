@@ -23,6 +23,14 @@ var (
 	ErrOpenInvalidPeerAS        *ErrorCode = &ErrorCode{Code: OPEN_MESSAGE_ERROR, Subcode: BAD_PEER_AS}
 	ErrOpenUnacceptableHoldTime *ErrorCode = &ErrorCode{Code: OPEN_MESSAGE_ERROR, Subcode: UNACCEPTABLE_HOLD_TIME}
 
+	ErrUpdateMalformedAttributeList    *ErrorCode = &ErrorCode{Code: UPDATE_MESSAGE_ERROR, Subcode: MALFORMED_ATTRIBUTE_LIST}
+	ErrUpdateAttributeFlagsError       *ErrorCode = &ErrorCode{Code: UPDATE_MESSAGE_ERROR, Subcode: ATTRIBUTE_FLAGS_ERROR}
+	ErrUpdateMissingWellKnownAttribute *ErrorCode = &ErrorCode{Code: UPDATE_MESSAGE_ERROR, Subcode: MISSING_WELL_KNOWN_ATTRIBUTE}
+	ErrUpdateInvalidOriginAttribute    *ErrorCode = &ErrorCode{Code: UPDATE_MESSAGE_ERROR, Subcode: INVALID_ORIGIN_ATTRIBUTE}
+	ErrUpdateInvalidNextHopAttribute   *ErrorCode = &ErrorCode{Code: UPDATE_MESSAGE_ERROR, Subcode: INVALID_NEXT_HOP_ATTRIBUTE}
+	ErrUpdateMalformedASPath           *ErrorCode = &ErrorCode{Code: UPDATE_MESSAGE_ERROR, Subcode: MALFORMED_AS_PATH}
+	ErrUpdateInvalidNetworkField       *ErrorCode = &ErrorCode{Code: UPDATE_MESSAGE_ERROR, Subcode: INVALID_NETWORK_FIELD}
+
 	ErrFiniteStateMachineError *ErrorCode = &ErrorCode{Code: FINITE_STATE_MACHINE_ERROR, Subcode: 0}
 )
 
@@ -114,12 +122,24 @@ type PathAttrType uint8
 const (
 	ORIGIN           PathAttrType = 1 // Well-known mandatory attribute
 	AS_PATH          PathAttrType = 2 // Well-known mandatory attribute
-	NEXT_HOP         PathAttrType = 3 //
+	NEXT_HOP         PathAttrType = 3 // Well-known mandatory attribute
 	MULTI_EXIT_DISC  PathAttrType = 4
 	LOCAL_PREF       PathAttrType = 5 // Well-known discretionary attribute
 	ATOMIC_AGGREGATE PathAttrType = 6 // Well-known discretionary attribute
 	AGGREGATOR       PathAttrType = 7 // Optional transitive attribute
 )
+
+const (
+	ORIGIN_IGP        uint8 = iota
+	ORIGIN_EGP        uint8 = iota
+	ORIGIN_INCOMPLETE uint8 = iota
+)
+
+type ASPathAttr struct {
+	SegType   uint8
+	SegLength uint8
+	AS2       []uint16
+}
 
 type NLRI []*Prefix
 
@@ -574,6 +594,76 @@ func (u *Update) Decode(l int) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func (u *Update) Validate(l uint16) ([]byte, *ErrorCode) {
+	// l should be Packet.Length field
+	if l < u.TotalPathAttrLen+u.WithdrawnRoutesLen+23 {
+		return nil, ErrUpdateMalformedAttributeList
+	}
+	wellKnownMandatoryAttrs := 0
+	unacceptables := make([]byte, 0)
+	for _, attr := range u.PathAttrs {
+		switch attr.Type {
+		case ORIGIN:
+			wellKnownMandatoryAttrs |= 1
+			originType := attr.Value[0]
+			switch originType {
+			case ORIGIN_IGP:
+			case ORIGIN_EGP:
+			case ORIGIN_INCOMPLETE:
+			default:
+				d := []byte{byte(attr.Type), byte(len(attr.Value))}
+				d = append(d, attr.Value...)
+				return d, ErrUpdateInvalidOriginAttribute
+			}
+		case NEXT_HOP:
+			wellKnownMandatoryAttrs |= 3
+			if len(attr.Value) != 4 && len(attr.Value) != 16 {
+				d := []byte{byte(attr.Type), byte(len(attr.Value))}
+				d = append(d, attr.Value...)
+				return d, ErrUpdateInvalidNextHopAttribute
+			}
+		case AS_PATH:
+			wellKnownMandatoryAttrs |= 2
+			if _, err := ParseASPathAttr(attr.Value); err != nil {
+				return nil, ErrUpdateMalformedASPath
+			}
+		default:
+			d := []byte{byte(attr.Type), byte(len(attr.Value))}
+			d = append(d, attr.Value...)
+			unacceptables = append(unacceptables, d...)
+		}
+		if isWellKnownMandatoryAttr(attr.Type) {
+			wellKnownMandatoryAttrs |= 1 << (attr.Type - 1)
+		}
+	}
+	if len(unacceptables) != 0 {
+		return unacceptables, ErrUpdateAttributeFlagsError
+	}
+	if wellKnownMandatoryAttrs != 7 {
+		// missing some well known mandatory attributes
+		missingAttrs := make([]byte, 0, 3)
+		if wellKnownMandatoryAttrs|1 == 0 {
+			missingAttrs = append(missingAttrs, byte(ORIGIN))
+		}
+		if wellKnownMandatoryAttrs|2 == 0 {
+			missingAttrs = append(missingAttrs, byte(AS_PATH))
+		}
+		if wellKnownMandatoryAttrs|4 == 0 {
+			missingAttrs = append(missingAttrs, byte(NEXT_HOP))
+		}
+		return missingAttrs, ErrUpdateMissingWellKnownAttribute
+	}
+	dup := make(map[PathAttrType]bool)
+	for _, attr := range u.PathAttrs {
+		if _, ok := dup[attr.Type]; ok {
+			return nil, ErrUpdateMalformedAttributeList
+		}
+		dup[attr.Type] = true
+	}
+	// NLRI
+	return nil, nil
+}
+
 func (u *Update) Dump() string {
 	str := ""
 	return str
@@ -604,6 +694,42 @@ func (n *Notification) Decode(l int) ([]byte, error) {
 func (n *Notification) Dump() string {
 	str := ""
 	return str
+}
+
+func isAcceptablePathAttr(typ PathAttrType) bool {
+	// when implement path_attribute handler, add to this condition
+	switch typ {
+	case ORIGIN, AS_PATH, NEXT_HOP:
+		return true
+	default:
+		return false
+	}
+}
+
+func isWellKnownMandatoryAttr(typ PathAttrType) bool {
+	switch typ {
+	case ORIGIN, AS_PATH, NEXT_HOP:
+		return true
+	default:
+		return false
+	}
+}
+
+func ParseASPathAttr(data []byte) (*ASPathAttr, error) {
+	buf := bytes.NewBuffer(data)
+	attr := &ASPathAttr{}
+	if err := binary.Read(buf, binary.BigEndian, &attr.SegType); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buf, binary.BigEndian, &attr.SegLength); err != nil {
+		return nil, err
+	}
+	vals := make([]uint16, attr.SegLength)
+	if err := binary.Read(buf, binary.BigEndian, vals); err != nil {
+		return nil, err
+	}
+	attr.AS2 = vals
+	return attr, nil
 }
 
 type messageBuilder struct {

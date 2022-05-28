@@ -13,7 +13,7 @@ import (
 func TestPeerHandleEvent(t *testing.T) {
 	logger, err := log.New(log.NoLog, "")
 	require.NoError(t, err)
-	p := newPeer(logger, nil, net.ParseIP("10.10.0.1"), net.ParseIP("10.0.0.2"), 1)
+	p := newPeer(logger, nil, net.ParseIP("10.10.0.1"), net.ParseIP("10.0.0.2"), net.ParseIP("1.1.1.1"), 100, 200)
 	for _, d := range []struct {
 		evt event
 	}{

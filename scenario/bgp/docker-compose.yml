@@ -1,39 +1,88 @@
+# https://github.com/tinynetwork/tinet/blob/master/examples/basic_ebgp/spec.yaml
+
+# DESCRIPTION: BGP network using FRR
+#
+# INIT:
+#    cns spec.yaml init | sudo sh
+#    cns spec.yaml conf | sudo sh
+#    cns spec.yaml test | sudo sh
+#
+# FINI:
+#    cns spec.yaml fini | sudo sh
+#
+# TOPO:
+#
+#                          vlan1:10.0.0.0/24
+#                     .1(net0)          .2(net0)
+#                R0(AS100)------------------R1(AS200)
+#            (net1).1|                          |.1(net1)
+#                    |                          |
+#  vlan1:10.1.0.0/24 |                          | vlan1:10.2.0.0/24
+#                    |                          |
+#            (net0).2|                          |.2(net0)
+#                R2(AS300)                  R3(AS400)
+#            (net1).1|                          |.1(net1)
+#                    |                          |
+#  vlan1:10.3.0.0/24 |                          | vlan1:10.4.0.0/24
+#                    |                          |
+#            (net0).2|                          |.2(net0)
+#                    C0                         C1
+#
+
 version: '3'
 services:
-  h1:
-    build: ../docker/alpine
-    tty: true
-    privileged: true
-    volumes:
-      - ./h1/data:/tmp/data
-    networks:
-      - link0
-  h2:
-    build: ../docker/alpine
-    tty: true
-    privileged: true
-    volumes:
-      - ./h2/data:/tmp/data
-    networks:
-      - link2
-  pe1:
+  r0:
     build: ../docker/frr
     tty: true
     privileged: true
     volumes:
-      - ./pe1/data:/tmp/data
+      - ./r0/data:/tmp/data
     networks:
-      - link0
-      - link1
-  pe2:
+      - link0 # 10.0.0.0/24
+      - link1 # 10.1.0.0/24
+  r1:
     build: ../docker/frr
     tty: true
     privileged: true
     volumes:
-      - ./pe2/data:/tmp/data
+      - ./r1/data:/tmp/data
     networks:
-      - link1
-      - link2
+      - link0 # 10.0.0.0/24
+      - link2 # 10.2.0.0/24
+  r2:
+    build: ../docker/frr
+    tty: true
+    privileged: true
+    volumes:
+      - ./r2/data:/tmp/data
+    networks:
+      - link1 # 10.1.0.0/24
+      - link3 # 10.3.0.0/24
+  r3:
+    build: ../docker/frr
+    tty: true
+    privileged: true
+    volumes:
+      - ./r3/data:/tmp/data
+    networks:
+      - link2 # 10.2.0.0/24
+      - link4 # 10.4.0.0/24
+  c0:
+    build: ../docker/alpine
+    tty: true
+    privileged: true
+    volumes:
+      - ./c0/data:/tmp/data
+    networks:
+      - link4
+  c1:
+    build: ../docker/alpine
+    tty: true
+    privileged: true
+    volumes:
+      - ./c1/data:/tmp/data
+    networks:
+      - link3
 networks:
   link0:
     driver: bridge
@@ -46,10 +95,22 @@ networks:
     ipam:
       driver: default
       config:
-        - subnet: 10.0.1.0/24
+        - subnet: 10.1.0.0/24
   link2:
     driver: bridge
     ipam:
       driver: default
       config:
-        - subnet: 10.0.2.0/24
+        - subnet: 10.2.0.0/24
+  link3:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.3.0.0/24
+  link4:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.4.0.0/24

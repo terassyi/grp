@@ -269,3 +269,19 @@ func TestNotification_Decode(t *testing.T) {
 		assert.Equal(t, d, data)
 	}
 }
+
+func TestParseASPathAttr(t *testing.T) {
+	for _, d := range []struct {
+		data []byte
+		attr *ASPathAttr
+	}{
+		{data: []byte{0x02, 0x01, 0xfe, 0x4c}, attr: &ASPathAttr{SegType: 2, SegLength: 1, AS2: []uint16{65100}}},
+		{data: []byte{0x02, 0x02, 0xfe, 0x4c, 0xff, 0x14}, attr: &ASPathAttr{SegType: 2, SegLength: 2, AS2: []uint16{65100, 65300}}},
+	} {
+		attr, err := ParseASPathAttr(d.data)
+		require.NoError(t, err)
+		assert.Equal(t, d.attr.SegType, attr.SegType)
+		assert.Equal(t, d.attr.SegLength, attr.SegLength)
+		assert.Equal(t, d.attr.AS2, attr.AS2)
+	}
+}

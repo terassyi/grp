@@ -16,18 +16,18 @@ func TestGbpRegisterPeer(t *testing.T) {
 	addr := net.ParseIP("10.0.0.1")
 	as := 0
 	require.NoError(t, err)
-	expPeer := newPeer(b.logger, nil, net.ParseIP("10.0.0.2"), addr, as)
-	_, err = b.registerPeer(addr, as, false)
+	expPeer := newPeer(b.logger, nil, net.ParseIP("10.0.0.2"), addr, b.routerId, b.as, as)
+	_, err = b.registerPeer(addr, b.routerId, b.as, as, false)
 	require.NoError(t, err)
 	p, ok := b.peers[addr.String()]
 	assert.NotEqual(t, false, ok)
 	assert.Equal(t, expPeer.state, p.state)
-	// error already regiter
-	_, err = b.registerPeer(addr, as, false)
+	// error already register
+	_, err = b.registerPeer(addr, b.routerId, b.as, as, false)
 	require.Error(t, ErrPeerAlreadyRegistered, err)
 	// force register
 	b.peers[addr.String()] = &peer{state: ACTIVE, as: as}
-	_, err = b.registerPeer(addr, as, true)
+	_, err = b.registerPeer(addr, b.routerId, b.as, as, true)
 	require.NoError(t, err)
 	p2, ok := b.peers[addr.String()]
 	assert.NotEqual(t, false, ok)

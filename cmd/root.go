@@ -26,6 +26,7 @@ func init() {
 	// bgp
 	bgpCmd.Flags().IntP("log", "l", 0, "log level")
 	bgpCmd.Flags().StringP("log-path", "o", "", "log output path")
+	bgpCmd.Flags().StringP("config", "c", "", "configuration file path")
 	rootCmd.AddCommand(bgpCmd)
 }
 

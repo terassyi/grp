@@ -115,6 +115,7 @@ type peer struct {
 	port           int
 	link           netlink.Link
 	as             int
+	routerId       net.IP
 	holdTime       time.Duration
 	conn           *net.TCPConn
 	connCh         chan *net.TCPConn
@@ -136,12 +137,13 @@ const (
 	DEFAULT_HOLD_TIME_INTERVAL          time.Duration = 180 * time.Second
 )
 
-func newPeer(logger log.Logger, link netlink.Link, local, addr net.IP, as int) *peer {
+func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int) *peer {
 	return &peer{
-		neighbor:       newNeighbor(addr, as),
+		neighbor:       newNeighbor(addr, peerAS),
 		addr:           local,
 		link:           link,
-		as:             as,
+		as:             myAS,
+		routerId:       routerId,
 		holdTime:       DEFAULT_HOLD_TIME_INTERVAL,
 		state:          IDLE,
 		eventQueue:     make(chan event, 1),
@@ -343,9 +345,12 @@ func (p *peer) handleConn(ctx context.Context) error {
 	return nil
 }
 
-func (p *peer) notifyError(err *ErrorCode) error {
+func (p *peer) notifyError(d []byte, err *ErrorCode) error {
 	builder := Builder(NOTIFICATION)
 	builder.ErrorCode(err)
+	if d != nil {
+		builder.Data(d)
+	}
 	p.tx <- builder.Packet()
 	return err
 }
@@ -411,7 +416,7 @@ func (p *peer) changeState(et eventType) error {
 			p.state = IDLE
 		}
 	default:
-		return p.notifyError(ErrFiniteStateMachineError)
+		return p.notifyError(nil, ErrFiniteStateMachineError)
 	}
 	if old != p.state {
 		p.logger.Infof("change state %s -> %s\n", old, p.state)
@@ -637,7 +642,7 @@ func (p *peer) recvOpenMsgEvent(evt event) error {
 		op := GetMessage[*Open](msg.msg.Message)
 		if err := op.Validate(); err != nil {
 			// OPEN failed
-			return p.notifyError(err)
+			return p.notifyError(nil, err)
 		}
 		// Process OPEN is ok
 		p.keepAliveTimer.start()
@@ -670,7 +675,14 @@ func (p *peer) recvKeepAliveMsgEvent(evt event) error {
 }
 
 func (p *peer) recvUpdateMsgEvent(evt event) error {
+	msg := evt.(*recvUpdateMsg)
+	update := GetMessage[*Update](msg.msg.Message)
+	d, err := update.Validate(msg.msg.Header.Length)
+	if err != nil {
+		return p.notifyError(d, err)
+	}
 	p.holdTimer.restart()
+	p.logger.Infof("%s", update.Dump())
 	return p.changeState(event_type_recv_update_msg)
 }
 

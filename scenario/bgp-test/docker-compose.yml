@@ -6,9 +6,10 @@ services:
     privileged: true
     volumes:
       - ../../:/go/grp
-      - ./pe1/data:/tmp/data
+      - ./pe1/:/tmp/
     networks:
-      - link0
+      link0:
+        ipv4_address: 10.0.1.2
   pe2:
     build: ../docker/frr
     tty: true
@@ -16,11 +17,12 @@ services:
     volumes:
       - ./pe2/data:/tmp/data
     networks:
-      - link0
+      link0:
+        ipv4_address: 10.0.1.3
 networks:
   link0:
     driver: bridge
     ipam:
       driver: default
       config:
-        - subnet: 10.1.0.0/24
+        - subnet: 10.0.1.0/24

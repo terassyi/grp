@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/terassyi/grp/grp/log"
@@ -22,12 +25,20 @@ const (
 type Bgp struct {
 	// tx    chan message
 	// rx    chan message
+	as           int
 	port         int
+	routerId     net.IP
 	server       *server
-	peers        map[string]*peer  // key: ipaddr string, value: peer struct pointer
+	peers        map[string]*peer // key: ipaddr string, value: peer struct pointer
+	networks     []*network
 	neighborMap  map[string]net.IP // key: local addr, value: neighbor addr
 	requestQueue chan *Request
 	logger       log.Logger
+	signalCh     chan os.Signal
+}
+
+type network struct {
+	*net.IPNet
 }
 
 type state uint8
@@ -69,6 +80,7 @@ type message struct {
 }
 
 var (
+	ErrASNumberIsRequired         error = errors.New("AS Number is required.")
 	ErrInvalidBgpState            error = errors.New("Invalid BGP state.")
 	ErrPeerAlreadyRegistered      error = errors.New("Peer already registered.")
 	ErrInvalidNeighborAddress     error = errors.New("Invalid neighbor address.")
@@ -88,22 +100,88 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 	if err != nil {
 		return nil, err
 	}
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh,
+		syscall.SIGINT,
+		syscall.SIGTERM)
 	return &Bgp{
 		port:         port,
 		peers:        make(map[string]*peer),
 		logger:       logger,
 		requestQueue: make(chan *Request, 16),
+		networks:     make([]*network, 0),
+		signalCh:     sigCh,
 	}, nil
+}
+
+func FromConfig(conf *Config, logLevel int, logOut string) (*Bgp, error) {
+	port := PORT
+	if conf.Port != port {
+		port = conf.Port
+	}
+	b, err := New(port, logLevel, logOut)
+	if err != nil {
+		return nil, err
+	}
+	if conf.AS == 0 {
+		return nil, ErrASNumberIsRequired
+	}
+	b.setAS(conf.AS)
+	if conf.RouterId != "" {
+		b.setRouterId(conf.RouterId)
+	}
+	for _, neighbor := range conf.Neighbors {
+		peerAddr := net.ParseIP(neighbor.Address)
+		_, err := b.registerPeer(peerAddr, b.routerId, b.as, neighbor.AS, false)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, target := range conf.Networks {
+		_, cidr, err := net.ParseCIDR(target)
+		if err != nil {
+			return nil, err
+		}
+		b.networks = append(b.networks, &network{cidr})
+	}
+	return b, nil
+}
+
+func (b *Bgp) setAS(as int) error {
+	b.as = as
+	b.logger.Infof("AS Number: %d", as)
+	return nil
+}
+
+func (b *Bgp) setRouterId(routerId string) error {
+	b.routerId = net.ParseIP(routerId)
+	b.logger.Infof("Router ID: %s", routerId)
+	return nil
 }
 
 func (b *Bgp) Poll() error {
 	b.logger.Infoln("BGP daemon start.")
-	return b.poll()
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := b.poll(ctx); err != nil { // BGP daemon main routine
+		cancel()
+		return err
+	}
+	for _, p := range b.peers {
+		cctx, _ := context.WithCancel(ctx)
+		go p.poll(cctx)
+		p.enqueueEvent(&bgpStart{})
+	}
+	select {
+	case <-b.signalCh:
+		b.logger.Infof("Receive a signal. Terminate GRP BGP daemon.")
+		cancel()
+		return nil
+	}
 }
 
-func (b *Bgp) poll() error {
-	ctx, _ := context.WithCancel(context.Background())
+func (b *Bgp) poll(ctx context.Context) error {
 	// request handling routine
+	b.logger.Infof("GRP BGP Polling Start.")
 	go func() {
 		for {
 			select {
@@ -114,11 +192,6 @@ func (b *Bgp) poll() error {
 			}
 		}
 	}()
-	time.Sleep(time.Second * 4)
-	b.logger.Infoln("sleep finish. submit request.")
-	b.requestQueue <- &Request{Command: "neighbor", Args: []string{"10.1.0.3", "remote-as", "1"}}
-	for {
-	}
 	return nil
 }
 
@@ -139,7 +212,7 @@ func (b *Bgp) requestHandle(ctx context.Context, req *Request) error {
 			as = a
 		}
 		// create new peer
-		peer, err := b.registerPeer(addr, as, false)
+		peer, err := b.registerPeer(addr, b.routerId, b.as, as, false)
 		if err != nil {
 			return err
 		}
@@ -158,7 +231,7 @@ func (b *Bgp) requestHandle(ctx context.Context, req *Request) error {
 	return nil
 }
 
-func (b *Bgp) registerPeer(addr net.IP, as int, force bool) (*peer, error) {
+func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) (*peer, error) {
 	idx, local, err := lookupLocalAddr(addr)
 	if err != nil {
 		return nil, err
@@ -167,11 +240,19 @@ func (b *Bgp) registerPeer(addr net.IP, as int, force bool) (*peer, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := newPeer(b.logger, link, local, addr, as)
+	ri := routerId
+	if ri == nil {
+		// If router-id is not specified, pick the largest IP address in the host
+		ri, err = PickLargestAddr()
+		if err != nil {
+			return nil, err
+		}
+	}
+	p := newPeer(b.logger, link, local, addr, ri, myAS, peerAS)
 	if _, ok := b.peers[addr.String()]; ok && !force {
 		return nil, ErrPeerAlreadyRegistered
 	}
-	p.logger.Infof("Register peer local->%s remote->%s ASN->%d", local, addr, as)
+	p.logger.Infof("Register peer local->%s remote->%s ASN->%d", local, addr, peerAS)
 	b.peers[addr.String()] = p
 	return p, nil
 }
