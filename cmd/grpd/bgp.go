@@ -1,11 +1,11 @@
-package cmd
+package main
 
 import (
 	"log"
 
 	"github.com/spf13/cobra"
-	"github.com/terassyi/grp/grp/bgp"
-	"github.com/terassyi/grp/grp/config"
+	"github.com/terassyi/grp/pkg/bgp"
+	"github.com/terassyi/grp/pkg/config"
 )
 
 var bgpCmd = &cobra.Command{

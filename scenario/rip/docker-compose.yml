@@ -22,46 +22,51 @@ services:
     build: ../docker/grp/
     volumes:
       - ../../:/go/grp
-    # build: ../docker/bird/
-    # build: ../docker/frr/
-    tty: true
-    privileged: true
+    cap_add:
+      - NET_ADMIN
     networks:
-      - link0
-      - link1
-      - link2
-      # link0:
-      #   ipv4_address: 192.168.0.1
-      # link1:
-      #   ipv4_address: 192.168.1.254
+      link0:
+        ipv4_address: 192.168.1.2
+      link1:
+        ipv4_address: 192.168.1.3
+      link2:
+        ipv4_address: 192.168.2.2
   r2: 
     build: ../docker/frr/
-    tty: true
-    privileged: true
+    cap_add:
+      - NET_ADMIN
     networks:
-      - link2
-      - link4
+      link2:
+        ipv4_address: 192.168.2.3
+      link4:
+        ipv4_address: 192.168.4.2
   r3:
     build: ../docker/frr/
-    tty: true
-    privileged: true
+    cap_add:
+      - NET_ADMIN
     networks:
-      - link1
-      - link3
-      - link5
+      link1:
+        ipv4_address: 192.168.1.3
+      link3:
+        ipv4_address: 192.168.3.3
+      link5:
+        ipv4_address: 192.168.5.3
   r4:
     build: ../docker/frr/
-    tty: true
-    privileged: true
+    cap_add:
+      - NET_ADMIN
     networks:
-      - link3
-      - link4
+      link3:
+        ipv4_address: 192.168.3.2
+      link4: 
+        ipv4_address: 192.168.4.3
   r5:
     build: ../docker/frr/
-    tty: true
-    privileged: true
+    cap_add:
+      - NET_ADMIN
     networks:
-      - link5
+      link5:
+        ipv4_address: 192.168.5.2
 
 networks:
   link0:

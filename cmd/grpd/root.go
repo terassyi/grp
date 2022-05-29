@@ -1,11 +1,11 @@
-package cmd
+package main
 
 import (
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/terassyi/grp/grp/rip"
+	"github.com/terassyi/grp/pkg/rip"
 )
 
 var rootCmd = &cobra.Command{

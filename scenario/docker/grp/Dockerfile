@@ -1,8 +1,12 @@
 FROM golang:1.18
 
 RUN apt update -y && \
-	apt install -y vim tcpdump iproute2 iputils-ping systemd iperf
+	apt install -y vim tcpdump iproute2 iputils-ping systemd iperf git && \
+	git clone https://github.com/terassyi/grp.git && \
+	cd grp && \
+	go build -o grpd && \
+	mv grpd /usr/local/bin
 
-COPY init.sh /tmp/init.sh
+WORKDIR /go/grp
 
 CMD [ "bash" ]

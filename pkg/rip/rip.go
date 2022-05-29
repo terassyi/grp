@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/terassyi/grp/grp/fib"
-	"github.com/terassyi/grp/grp/log"
+	"github.com/terassyi/grp/pkg/fib"
+	"github.com/terassyi/grp/pkg/log"
 	"github.com/vishvananda/netlink"
 )
 

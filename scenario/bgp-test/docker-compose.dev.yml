@@ -1,10 +1,15 @@
 version: '3'
 services:
   pe1:
-    build: ../docker/grp
+    # build: ../docker/grp
+    build: ../docker/frr
     cap_add:
       - NET_ADMIN
+    privileged: true
     tty: true
+    volumes:
+      - ../../:/go/grp
+      - ./pe1/:/tmp/pe1
     networks:
       link0:
         ipv4_address: 10.0.0.2
@@ -14,7 +19,10 @@ services:
     build: ../docker/frr
     cap_add:
       - NET_ADMIN
+    privileged: true
     tty: true
+    volumes:
+      - ./pe2/data:/tmp/data
     networks:
       link0:
         ipv4_address: 10.0.0.3

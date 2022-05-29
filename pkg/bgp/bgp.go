@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/terassyi/grp/grp/log"
+	"github.com/terassyi/grp/pkg/log"
 	"github.com/vishvananda/netlink"
 )
 

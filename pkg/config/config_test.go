@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/grp/grp/bgp"
+	"github.com/terassyi/grp/pkg/bgp"
 )
 
 func TestLoadConfig(t *testing.T) {

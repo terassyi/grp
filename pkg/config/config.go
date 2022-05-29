@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/terassyi/grp/grp/bgp"
+	"github.com/terassyi/grp/pkg/bgp"
 	"gopkg.in/yaml.v3"
 )
 
