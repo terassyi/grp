@@ -149,6 +149,7 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 		eventQueue:     make(chan event, 1),
 		tx:             make(chan *Packet, 128),
 		rx:             make(chan *Packet, 128),
+		connCh:         make(chan *net.TCPConn, 1),
 		logger:         logger,
 		connRetryTimer: newTimer(DEFAULT_CONNECT_RETRY_TIME_INTERVAL),
 		keepAliveTimer: newTimer(DEFAULT_KEEPALIVE_TIME_INTERVAL),
@@ -666,6 +667,11 @@ func (p *peer) recvKeepAliveMsgEvent(evt event) error {
 		// Complete initialization
 		// Restart hold timer
 		p.holdTimer.restart()
+		//  Send UPDATE message when a new BGP speaker - BGP speaker connection has been established
+		builder := Builder(UPDATE)
+		builder.WithdrawnRoutes([]*Prefix{})
+		builder.PathAttrs([]*PathAttr{})
+		p.tx <- builder.Packet()
 	case ESTABLISHED:
 		p.holdTimer.restart()
 	default:

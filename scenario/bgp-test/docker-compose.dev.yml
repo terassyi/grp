@@ -22,7 +22,7 @@ services:
     privileged: true
     tty: true
     volumes:
-      - ./pe2/data:/tmp/data
+      - ./pe2/:/tmp/pe2
     networks:
       link0:
         ipv4_address: 10.0.0.3
