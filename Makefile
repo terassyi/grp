@@ -13,7 +13,7 @@ COMPOSE := docker compose
 BGP_TEST_COMPOSE := ./scenario/bgp-test/docker-compose.yml
 BGP_TESt_GRP_CONTAINER_NAME := pe1
 
-BGP_DEV_COMPOSE := ./scenario/bgp-test/docker-compose.dev.yml
+BGP_DEV_COMPOSE := ./scenario/bgp/docker-compose.dev.yml
 
 .PHONY: build
 build:
@@ -27,6 +27,12 @@ up:
 .PHONY: dev-up
 dev-up:
 	$(COMPOSE) -f $(BGP_DEV_COMPOSE) up -d 
+	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec r0 /tmp/r0/bgp-100.sh
+	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec r1 /tmp/r1/bgp-200.sh
+	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec r2 /tmp/r2/bgp-300.sh 
+	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec r3 /tmp/r3/bgp-400.sh
+	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec c0 /tmp/c0/setup.sh
+	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec c1 /tmp/c1/setup.sh
 
 .PHONY: down
 down:
@@ -41,6 +47,7 @@ dev-test: dev-up
 	@echo "----- Unit Test -----"
 	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec $(BGP_TESt_GRP_CONTAINER_NAME) $(GOTEST) -v ./...
 	@echo "----- Integration Test -----"
+	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec $(BGP_TESt_GRP_CONTAINER_NAME) $(GOTEST) -tags=integration -v ./...
 
 
 .PHONY: bgp_test

@@ -6,15 +6,17 @@ import (
 )
 
 type neighbor struct {
-	addr net.IP
-	port int
-	as   int
-	hold time.Duration
+	addr         net.IP
+	port         int
+	as           int
+	hold         time.Duration
+	capabilities []Capability
 }
 
 func newNeighbor(addr net.IP, asn int) *neighbor {
 	return &neighbor{
-		addr: addr,
-		as:   asn,
+		addr:         addr,
+		as:           asn,
+		capabilities: make([]Capability, 0),
 	}
 }

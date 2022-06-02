@@ -82,7 +82,8 @@ type Option struct {
 type ParameterType uint8
 
 const (
-	AUTH_INFO ParameterType = 1
+	AUTH_INFO  ParameterType = 1
+	CAPABILITY ParameterType = 2
 )
 
 type Update struct {
@@ -538,6 +539,21 @@ func (o *Open) Validate() *ErrorCode {
 	}
 	// TODO: Options validation
 	return nil
+}
+
+func (o *Open) Capabilities() ([]Capability, error) {
+	caps := make([]Capability, 0, len(o.Options))
+	for _, opt := range o.Options {
+		if opt.Type != CAPABILITY {
+			continue
+		}
+		cap, err := ParseCap(opt.Value)
+		if err != nil {
+			return nil, err
+		}
+		caps = append(caps, cap)
+	}
+	return caps, nil
 }
 
 func (o *Open) Dump() string {

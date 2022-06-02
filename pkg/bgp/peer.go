@@ -117,6 +117,7 @@ type peer struct {
 	as             int
 	routerId       net.IP
 	holdTime       time.Duration
+	capabilities   []Capability
 	conn           *net.TCPConn
 	connCh         chan *net.TCPConn
 	state          state
@@ -145,6 +146,7 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 		as:             myAS,
 		routerId:       routerId,
 		holdTime:       DEFAULT_HOLD_TIME_INTERVAL,
+		capabilities:   defaultCaps(),
 		state:          IDLE,
 		eventQueue:     make(chan event, 1),
 		tx:             make(chan *Packet, 128),
@@ -554,8 +556,16 @@ func (p *peer) transOpenEvent(ctx context.Context) error {
 			if err := p.handleConn(ctx); err != nil {
 				return err
 			}
-			time.Sleep(time.Second * 2)
-			if err := p.sendOpenMsg(nil); err != nil {
+			opts := make([]*Option, 0)
+			// auth options
+			for _, cap := range p.capabilities {
+				b, err := cap.Decode()
+				if err != nil {
+					return nil
+				}
+				opts = append(opts, &Option{Type: CAPABILITY, Length: uint8(len(b)), Value: b})
+			}
+			if err := p.sendOpenMsg(opts); err != nil {
 				return err
 			}
 		}
@@ -565,7 +575,17 @@ func (p *peer) transOpenEvent(ctx context.Context) error {
 		if err := p.handleConn(ctx); err != nil {
 			return err
 		}
-		if err := p.sendOpenMsg(nil); err != nil {
+		time.Sleep(time.Second * 1)
+		opts := make([]*Option, 0)
+		// auth options
+		for _, cap := range p.capabilities {
+			b, err := cap.Decode()
+			if err != nil {
+				return nil
+			}
+			opts = append(opts, &Option{Type: CAPABILITY, Length: uint8(len(b)), Value: b})
+		}
+		if err := p.sendOpenMsg(opts); err != nil {
 			return err
 		}
 	default:
@@ -645,7 +665,10 @@ func (p *peer) recvOpenMsgEvent(evt event) error {
 			// OPEN failed
 			return p.notifyError(nil, err)
 		}
+		caps, _ := op.Capabilities() // ignore unsupported capability error
+		p.neighbor.capabilities = append(p.neighbor.capabilities, caps...)
 		// Process OPEN is ok
+		p.logger.Warnf("Caps")
 		p.keepAliveTimer.start()
 		builder := Builder(KEEPALIVE)
 		p.tx <- builder.Packet()

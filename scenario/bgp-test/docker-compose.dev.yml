@@ -1,8 +1,8 @@
 version: '3'
 services:
   pe1:
-    # build: ../docker/grp
-    build: ../docker/frr
+    build: ../docker/grp
+    # build: ../docker/frr
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -28,6 +28,17 @@ services:
         ipv4_address: 10.0.0.3
       link2:
         ipv4_address: 10.0.2.4
+  pe3:
+    build: ../docker/frr
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    tty: true
+    volumes:
+      - ./pe3/:/tmp/pe3
+    networks:
+      link2:
+        ipv4_address: 10.0.2.3
 networks:
   link0:
     driver: bridge

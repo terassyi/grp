@@ -1,0 +1,128 @@
+# https://github.com/tinynetwork/tinet/blob/master/examples/basic_ebgp/spec.yaml
+
+# DESCRIPTION: BGP network using FRR
+#
+# INIT:
+#    cns spec.yaml init | sudo sh
+#    cns spec.yaml conf | sudo sh
+#    cns spec.yaml test | sudo sh
+#
+# FINI:
+#    cns spec.yaml fini | sudo sh
+#
+# TOPO:
+#
+#                          vlan1:10.0.0.0/24
+#                     .2(eth0)          .3(eth0)
+#                R0(AS100)------------------R1(AS200)
+#            (eth1).2|                          |.2(eth1)
+#                    |                          |
+#  vlan1:10.1.0.0/24 |                          | vlan1:10.2.0.0/24
+#                    |                          |
+#            (eth0).3|                          |.3(eth0)
+#                R2(AS300)                  R3(AS400)
+#            (eth1).2|                          |.2(eth1)
+#                    |                          |
+#  vlan1:10.3.0.0/24 |                          | vlan1:10.4.0.0/24
+#                    |                          |
+#            (eth0).3|                          |.3(eth0)
+#                    C0                         C1
+#
+
+version: '3'
+services:
+  r0:
+    build: ../docker/frr
+    # build: ../docker/grp
+    tty: true
+    privileged: true
+    volumes:
+      - ../../:/go/grp
+      - ./r0:/tmp/r0
+    networks:
+      link0:
+        ipv4_address: 10.0.0.2 # 10.0.0.0/24
+      link1:
+        ipv4_address: 10.1.0.2 # 10.1.0.0/24
+  r1:
+    build: ../docker/frr
+    tty: true
+    privileged: true
+    volumes:
+      - ./r1:/tmp/r1
+    networks:
+      link0:
+        ipv4_address: 10.0.0.3 # 10.0.0.0/24
+      link2:
+        ipv4_address: 10.2.0.2 # 10.2.0.0/24
+  r2:
+    build: ../docker/frr
+    tty: true
+    privileged: true
+    volumes:
+      - ./r2:/tmp/r2
+    networks:
+      link1:
+        ipv4_address: 10.1.0.3 # 10.1.0.0/24
+      link3:
+        ipv4_address: 10.3.0.2 # 10.3.0.0/24
+  r3:
+    build: ../docker/frr
+    tty: true
+    privileged: true
+    volumes:
+      - ./r3:/tmp/r3
+    networks:
+      link2:
+        ipv4_address: 10.2.0.3 # 10.2.0.0/24
+      link4:
+        ipv4_address: 10.4.0.2 # 10.4.0.0/24
+  c0:
+    build: ../docker/alpine
+    tty: true
+    privileged: true
+    volumes:
+      - ./c0:/tmp/c0
+    networks:
+      link3:
+        ipv4_address: 10.3.0.3
+  c1:
+    build: ../docker/alpine
+    tty: true
+    privileged: true
+    volumes:
+      - ./c1:/tmp/c1
+    networks:
+      link4:
+        ipv4_address: 10.4.0.3
+networks:
+  link0:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.0.0.0/24
+  link1:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.1.0.0/24
+  link2:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.2.0.0/24
+  link3:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.3.0.0/24
+  link4:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.4.0.0/24

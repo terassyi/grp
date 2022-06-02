@@ -1,0 +1,13 @@
+
+log:
+  level: 1
+  out: stdout
+
+bgp:
+  AS: 100
+  router-id: 1.1.1.1
+  neighbors:
+    - address: 10.0.0.3
+      AS: 200
+    - address: 10.1.0.3
+      AS: 300
