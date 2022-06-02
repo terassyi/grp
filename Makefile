@@ -15,6 +15,9 @@ BGP_TESt_GRP_CONTAINER_NAME := pe1
 
 BGP_DEV_COMPOSE := ./scenario/bgp/docker-compose.dev.yml
 
+TINET_SPEC := ./scenario/bgp/tinet-spec.yml
+TINET_FRR_SPEC := ./scenario/bgp/tinet-frr-spec.yml
+
 .PHONY: build
 build:
 	$(GOBUILD) -o $(GRP_BINARY) $(GRP_DIR)
@@ -59,8 +62,6 @@ bgp_test: up
 exec.%:
 	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec ${@:exec.%=%} bash
 
-
-
 .PHONY: test
 test: up
 
@@ -71,3 +72,19 @@ clean: down
 	$(GOCLEAN)
 	rm $(GRP_BINARY)
 	rm $(GRPD_BINARY)
+
+tinet.%:
+	@echo "# tinet"
+	if [ ${@:tinet.%=%} = "upconf" ]; then \
+		make; \
+	elif [ ${@:tinet.%=%} = "up" ]; then \
+		make; \
+	fi
+	tinet ${@:tinet.%=%} -c $(TINET_SPEC) | sudo sh -x
+
+tinet-exec.%:
+	docker exec -it ${@:tinet-exec.%=%} bash
+
+tinet-frr.%:
+	tinet ${@:tinet-frr.%=%} -c $(TINET_FRR_SPEC) | sudo sh -x
+
