@@ -32,8 +32,8 @@
 version: '3'
 services:
   r0:
-    build: ../docker/frr
-    # build: ../docker/grp
+    # build: ../docker/frr
+    build: ../docker/grp
     tty: true
     privileged: true
     volumes:

@@ -690,11 +690,6 @@ func (p *peer) recvKeepAliveMsgEvent(evt event) error {
 		// Complete initialization
 		// Restart hold timer
 		p.holdTimer.restart()
-		//  Send UPDATE message when a new BGP speaker - BGP speaker connection has been established
-		builder := Builder(UPDATE)
-		builder.WithdrawnRoutes([]*Prefix{})
-		builder.PathAttrs([]*PathAttr{})
-		p.tx <- builder.Packet()
 	case ESTABLISHED:
 		p.holdTimer.restart()
 	default:
