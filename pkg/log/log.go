@@ -64,7 +64,8 @@ func New(level Level, out string) (Logger, error) {
 		}
 		l.out = file
 	}
-	l.Logger = zerolog.New(l.out).With().Timestamp().Logger().Output(zerolog.ConsoleWriter{Out: l.out})
+	output := zerolog.ConsoleWriter{Out: l.out, TimeFormat: "2006-01-02 15:04:050"}
+	l.Logger = zerolog.New(output).With().Timestamp().Logger()
 	return l, nil
 }
 

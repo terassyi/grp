@@ -272,35 +272,53 @@ func NewPacket(msgType MessageType) *Packet {
 	}
 }
 
+func preParse(data []byte) ([][]byte, error) {
+	var head, tail int = 0, 0
+	if len(data) < 18 {
+		return nil, fmt.Errorf("preParse: invalid BGP packet length")
+	}
+	tail = int(binary.BigEndian.Uint16(data[16:18]))
+	packets := [][]byte{data[head:tail]}
+	for tail < len(data) {
+		head = tail
+		if head+17 > len(data) {
+			break
+		}
+		tail += int(binary.BigEndian.Uint16(data[head+16 : head+18]))
+		packets = append(packets, data[head:tail])
+	}
+	return packets, nil
+}
+
 func Parse(data []byte) (*Packet, error) {
 	buf := bytes.NewBuffer(data)
 	packet := &Packet{Header: &Header{}}
 	if err := binary.Read(buf, binary.BigEndian, packet.Header); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Parse: failed to parse header: %w", err)
 	}
 	switch packet.Header.Type {
 	case OPEN:
 		op, err := ParseOpenMsg(buf.Bytes())
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Parse: %w", err)
 		}
 		packet.Message = op
 	case UPDATE:
 		upd, err := ParseUpdateMsg(buf.Bytes())
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Parse: %w", err)
 		}
 		packet.Message = upd
 	case NOTIFICATION:
 		notif, err := ParseNotificationMsg(buf.Bytes())
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Parse: %w", err)
 		}
 		packet.Message = notif
 	case KEEPALIVE:
 		packet.Message = &KeepAlive{}
 	default:
-		return nil, ErrInvalidMessageType
+		return nil, fmt.Errorf("Parse: %w", ErrInvalidMessageType)
 	}
 	return packet, nil
 }
@@ -308,11 +326,11 @@ func Parse(data []byte) (*Packet, error) {
 func (p *Packet) Decode() ([]byte, error) {
 	hdr, err := p.Header.Decode()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Packet_Decode: failed to decode header: %w", err)
 	}
 	msg, err := p.Message.Decode(int(p.Header.Length))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Packet_Decode: %w", err)
 	}
 	return append(hdr, msg...), nil
 }
@@ -320,13 +338,13 @@ func (p *Packet) Decode() ([]byte, error) {
 func (h *Header) Decode() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, 19))
 	if err := binary.Write(buf, binary.BigEndian, h.Maker); err != nil {
-		return nil, fmt.Errorf("decode header marker: %w", err)
+		return nil, fmt.Errorf("Header_Decode: marker: %w", err)
 	}
 	if err := binary.Write(buf, binary.BigEndian, h.Length); err != nil {
-		return nil, fmt.Errorf("decode header length: %w", err)
+		return nil, fmt.Errorf("Header_Decode: length: %w", err)
 	}
 	if err := binary.Write(buf, binary.BigEndian, h.Type); err != nil {
-		return nil, fmt.Errorf("decode header type: %w", err)
+		return nil, fmt.Errorf("Header_Decode: type: %w", err)
 	}
 	return buf.Bytes(), nil
 }
@@ -357,17 +375,17 @@ func ParseOpenMsg(data []byte) (*Open, error) {
 	o := &openNoOpt{}
 	buf := bytes.NewBuffer(data)
 	if err := binary.Read(buf, binary.BigEndian, o); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ParseOpenMsg: failed to parse msg withoud options: %w", err)
 	}
 	options := make([]*Option, 0, o.OptParmLen)
 	for buf.Len() > 0 {
 		optType, err := buf.ReadByte()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("ParseOpenMsg: failed to parse option type: %w", err)
 		}
 		l, err := buf.ReadByte()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("ParseOpenMsg: failed to parse option length: %w", err)
 		}
 		options = append(options, &Option{
 			Type:   ParameterType(optType),
@@ -391,32 +409,32 @@ func ParseUpdateMsg(data []byte) (*Update, error) {
 	buf := bytes.NewBuffer(data)
 	update := &Update{}
 	if err := binary.Read(buf, binary.BigEndian, &update.WithdrawnRoutesLen); err != nil {
-		return nil, fmt.Errorf("parse update msg witdrawn routes len: %w", err)
+		return nil, fmt.Errorf("ParseUpdateMsg: witdrawn routes len: %w", err)
 	}
 	wBuf := bytes.NewBuffer(buf.Next(int(update.WithdrawnRoutesLen)))
 	wRoutes := make([]*Prefix, 0)
 	for wBuf.Len() > 0 {
 		l, err := wBuf.ReadByte()
 		if err != nil {
-			return nil, fmt.Errorf("parse update msg withdrawn routes len: %w", err)
+			return nil, fmt.Errorf("ParseUpdateMsg: withdrawn routes len: %w", err)
 		}
 		wRoutes = append(wRoutes, &Prefix{Length: l, Prefix: wBuf.Next(int(l))})
 	}
 	update.WithdrawnRoutes = wRoutes
 	if err := binary.Read(buf, binary.BigEndian, &update.TotalPathAttrLen); err != nil {
-		return nil, fmt.Errorf("parse update msg total path attrs len: %w", err)
+		return nil, fmt.Errorf("ParseUpdateMsg: total path attrs len: %w", err)
 	}
 	pathAttrBuf := bytes.NewBuffer(buf.Next(int(update.TotalPathAttrLen)))
 	pathAttrs, err := ParsePathAttrs(pathAttrBuf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ParseUpdateMsg: path attributes: %w", err)
 	}
 	update.PathAttrs = pathAttrs
 	nlri := make([]*Prefix, 0)
 	for buf.Len() > 0 {
 		pref, err := buf.ReadByte()
 		if err != nil {
-			return nil, fmt.Errorf("parse update msg nlri len: %w", err)
+			return nil, fmt.Errorf("ParseUpdateMsg: nlri len: %w", err)
 		}
 		l := pref / 8
 		if pref%8 != 0 {
@@ -424,7 +442,7 @@ func ParseUpdateMsg(data []byte) (*Update, error) {
 		}
 		addr := make([]byte, l)
 		if err := binary.Read(buf, binary.BigEndian, addr); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("ParseUpdateMsg: nlri: %w", err)
 		}
 		addr = append(addr, make([]byte, 4-l)...)
 		nlri = append(nlri, &Prefix{
@@ -440,7 +458,7 @@ func ParseNotificationMsg(data []byte) (*Notification, error) {
 	buf := bytes.NewBuffer(data)
 	notification := &Notification{ErrorCode: &ErrorCode{}}
 	if err := binary.Read(buf, binary.BigEndian, notification.ErrorCode); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ParseNotificationMsg: error code: %w", err)
 	}
 	notification.Data = buf.Bytes()
 	return notification, nil
@@ -449,29 +467,29 @@ func ParseNotificationMsg(data []byte) (*Notification, error) {
 func (o *Open) Decode(l int) ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, l))
 	if err := binary.Write(buf, binary.BigEndian, o.Version); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Open_Decode: version: %w", err)
 	}
 	if err := binary.Write(buf, binary.BigEndian, o.AS); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Open_Decode: my AS: %w", err)
 	}
 	if err := binary.Write(buf, binary.BigEndian, o.HoldTime); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Open_Decode: hold time: %w", err)
 	}
 	if err := binary.Write(buf, binary.BigEndian, o.Identifier.To4()); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Open_Decode: idnetifier: %w", err)
 	}
 	if err := binary.Write(buf, binary.BigEndian, o.OptParmLen); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Open_Decode: option parameter length: %w", err)
 	}
 	for _, opt := range o.Options {
 		if err := binary.Write(buf, binary.BigEndian, opt.Type); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Open_Decode: option type: %w", err)
 		}
 		if err := binary.Write(buf, binary.BigEndian, opt.Length); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Open_Decode: option length: %w", err)
 		}
 		if err := binary.Write(buf, binary.BigEndian, opt.Value); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Open_Decode: option value: %w", err)
 		}
 	}
 	return buf.Bytes(), nil
@@ -500,7 +518,7 @@ func (o *Open) Capabilities() ([]Capability, error) {
 		}
 		cap, err := ParseCap(opt.Value)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Open_Capabilities: %w", err)
 		}
 		caps = append(caps, cap)
 	}
@@ -515,42 +533,42 @@ func (o *Open) Dump() string {
 func (u *Update) Decode(l int) ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, l))
 	if err := binary.Write(buf, binary.BigEndian, u.WithdrawnRoutesLen); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Update_Decode: withdrawn routes length: %w", err)
 	}
 	for _, wr := range u.WithdrawnRoutes {
 		if err := binary.Write(buf, binary.BigEndian, wr.Length); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Update_Decode: withdrawn route length: %w", err)
 		}
 		length := wr.Length / 8
 		if wr.Length%8 != 0 {
 			length++
 		}
 		if err := binary.Write(buf, binary.BigEndian, wr.Prefix[:length]); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Update_Decode: withdrawn route prefix")
 		}
 	}
 	if err := binary.Write(buf, binary.BigEndian, u.TotalPathAttrLen); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Update_Decode: total path attribute length: %w", err)
 	}
 	for _, attr := range u.PathAttrs {
 		attrBytes, err := attr.Decode()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Update_Decode: path attribute: %w", err)
 		}
 		if err := binary.Write(buf, binary.BigEndian, attrBytes); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Update_Decode: path attribute: %w", err)
 		}
 	}
 	for _, nlri := range u.NetworkLayerReachabilityInfo {
 		if err := binary.Write(buf, binary.BigEndian, nlri.Length); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Update_Decode: nlri length: %w", err)
 		}
 		length := nlri.Length / 8
 		if nlri.Length%8 != 0 {
 			length++
 		}
 		if err := binary.Write(buf, binary.BigEndian, nlri.Prefix[:length]); err != nil {
-			return nil, fmt.Errorf("decode update nlri prefix: %w", err)
+			return nil, fmt.Errorf("Update_Decode: nlri prefix: %w", err)
 		}
 	}
 	return buf.Bytes(), nil
@@ -625,13 +643,13 @@ func (*KeepAlive) Dump() string {
 func (n *Notification) Decode(l int) ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, l))
 	if err := binary.Write(buf, binary.BigEndian, n.ErrorCode.Code); err != nil {
-		return nil, fmt.Errorf("decode notification error code: %w", err)
+		return nil, fmt.Errorf("Notification_Decode: error code: %w", err)
 	}
 	if err := binary.Write(buf, binary.BigEndian, n.ErrorCode.Subcode); err != nil {
-		return nil, fmt.Errorf("decode notification error subcode: %w", err)
+		return nil, fmt.Errorf("Notification_Decode: error subcode: %w", err)
 	}
 	if err := binary.Write(buf, binary.BigEndian, n.Data); err != nil {
-		return nil, fmt.Errorf("decode notification data: %w", err)
+		return nil, fmt.Errorf("Notification_Decode: data: %w", err)
 	}
 	return buf.Bytes(), nil
 }

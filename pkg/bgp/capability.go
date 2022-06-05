@@ -25,7 +25,7 @@ func ParseCap(data []byte) (Capability, error) {
 	default:
 		return nil, fmt.Errorf("Unsupported Capability")
 	}
-	return nil, nil
+	return nil, nil // TODO: parse Open capabilities
 }
 
 func GetCap[T *MultiProtocolExtensions](cap Capability) T {
@@ -123,7 +123,7 @@ func newGracefulRestartCapability(data []byte) (*GracefulRestartCapability, erro
 	for buf.Len() > 0 {
 		t := &AFITuple{}
 		if err := binary.Read(buf, binary.BigEndian, t); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("newGracefulRestartCapability: %w", err)
 		}
 		g.Tuples = append(g.Tuples, *t)
 	}
@@ -151,7 +151,7 @@ func (g *GracefulRestartCapability) Decode() ([]byte, error) {
 	buf := bytes.NewBuffer([]byte{a, b})
 	for _, t := range g.Tuples {
 		if err := binary.Write(buf, binary.BigEndian, &t); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("GracefulRestartCapability_Decode: %w", err)
 		}
 	}
 	return buf.Bytes(), nil

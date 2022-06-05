@@ -2,9 +2,10 @@ package bgp
 
 import (
 	"context"
+	"encoding/hex"
+	"fmt"
 	"io"
 	"net"
-	"runtime"
 	"time"
 
 	"github.com/terassyi/grp/pkg/log"
@@ -161,19 +162,31 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 	}
 }
 
+func (p *peer) logInfo(format string, v ...any) {
+	p.logger.Infof("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.state, fmt.Sprintf(format, v...))
+}
+
+func (p *peer) logWarn(format string, v ...any) {
+	p.logger.Warnf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.state, fmt.Sprintf(format, v...))
+}
+
+func (p *peer) logErr(format string, v ...any) {
+	p.logger.Errorf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.state, fmt.Sprintf(format, v...))
+}
+
 func (p *peer) poll(ctx context.Context) {
-	p.logger.Infof("Peer polling start.")
+	p.logInfo("polling start...")
 	go func() {
 		for {
 			select {
 			case <-p.connRetryTimer.tick().C:
-				p.logger.Infof("peer[%s] Connect Retry Timer is Expired.\n", p.neighbor.addr)
+				// p.logger.Infof("peer[%s] Connect Retry Timer is Expired.\n", p.neighbor.addr)
 				p.enqueueEvent(&connRetryTimerExpired{})
 			case <-p.keepAliveTimer.tick().C:
-				p.logger.Infof("peer[%s] Keep Alive Timer is Expired.\n", p.neighbor.addr)
+				// p.logger.Infof("peer[%s] Keep Alive Timer is Expired.\n", p.neighbor.addr)
 				p.enqueueEvent(&keepaliveTimerExpired{})
 			case <-p.holdTimer.tick().C:
-				p.logger.Infof("peer[%s] Hold Timer is Expired.\n", p.neighbor.addr)
+				// p.logger.Infof("peer[%s] Hold Timer is Expired.\n", p.neighbor.addr)
 				p.enqueueEvent(&holdTimerExpired{})
 			case <-ctx.Done():
 				return
@@ -184,18 +197,16 @@ func (p *peer) poll(ctx context.Context) {
 		select {
 		case evt := <-p.eventQueue:
 			if err := p.handleEvent(ctx, evt); err != nil {
-				p.logger.Errorf("Event handler(%s): %s", evt.typ(), err)
+				p.logErr("handleEvent: evnt_type=%s %s", evt.typ(), err)
 			}
 		case <-ctx.Done():
-			p.logger.Infof("Stop polling.")
+			p.logInfo("polling stop...")
 			return
 		}
-		p.logger.Warnf("Goroutines %d", runtime.NumGoroutine())
 	}
 }
 
 func (p *peer) handleEvent(ctx context.Context, evt event) error {
-	p.logger.Infoln(evt.typ().String())
 	switch evt.typ() {
 	case event_type_bgp_start:
 		return p.startEvent()
@@ -233,7 +244,7 @@ func (p *peer) enqueueEvent(evt event) error {
 		return ErrEventQueueNotExist
 	}
 	p.eventQueue <- evt
-	p.logger.Infof("enqueue %s", evt.typ())
+	p.logInfo(" <- %s", evt.typ())
 	return nil
 }
 
@@ -242,17 +253,17 @@ func (p *peer) finishInitiate(conn *net.TCPConn) error {
 	// net.Conn must be *net.TCPConn
 	_, lport, err := SplitAddrAndPort(conn.LocalAddr().String())
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse local addr and port: %w", err)
 	}
 	raddr, rport, err := SplitAddrAndPort(conn.RemoteAddr().String())
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse peer addr and port: %w", err)
 	}
 	if p.port == 0 {
 		p.port = lport
 	}
 	if !raddr.Equal(p.neighbor.addr) {
-		return ErrInvalidNeighborAddress
+		return fmt.Errorf("finishInitiate: %w", ErrInvalidNeighborAddress)
 	}
 	if p.neighbor.port == 0 {
 		p.neighbor.port = rport
@@ -274,46 +285,48 @@ func (p *peer) sendOpenMsg(options []*Option) error {
 func (p *peer) handleConn(ctx context.Context) error {
 	// handle tcp connection
 	if p.conn == nil {
-		return ErrTransportConnectionClose
+		return fmt.Errorf("handleConn: %w", ErrTransportConnectionClose)
 	}
-	p.logger.Infof("transport connection is established.")
+	p.logInfo("establish TCP connection")
 	childCtx, cancel := context.WithCancel(ctx)
 	// TX handle
 	go func() {
-		p.logger.Infof("Start TX handle.")
+		p.logInfo("Tx handle start...")
 		for {
 			select {
 			case msg := <-p.tx:
 				data, err := msg.Decode()
 				if err != nil {
-					p.logger.Errorf("TX handler: decoding packet %s", err)
+					p.logErr("Tx handler: failed to decode packet: %s", err)
 					continue
 				}
 				if _, err := p.conn.Write(data); err != nil {
-					p.logger.Errorf("TX handler: write to transport connection %s", err)
+					p.logErr("Tx handler: failed to write packet: %s", err)
 					continue
 				}
 				if msg.Header.Type == NOTIFICATION {
 					// close connection
+					notification := GetMessage[*Notification](msg.Message)
+					p.logWarn("send Notification msg: %s", notification.ErrorCode)
 					p.conn.Close()
 					cancel()
 				}
 			case <-childCtx.Done():
-				p.logger.Infof("Stop TX handle.")
+				p.logInfo("Tx handle stop...")
 				return
 			}
 		}
 	}()
 	// RX handle
 	go func() {
-		p.logger.Infof("Start RX handle.")
+		p.logInfo("Rx handle start...")
 		for {
 			select {
 			case <-childCtx.Done():
-				p.logger.Infof("Stop RX handler.")
+				p.logInfo("Rx handle stop...")
 				return
 			default:
-				data := make([]byte, 512)
+				data := make([]byte, 1024*5)
 				n, err := p.conn.Read(data)
 				if err != nil {
 					if err == io.EOF {
@@ -322,25 +335,32 @@ func (p *peer) handleConn(ctx context.Context) error {
 					} else {
 						cancel()
 						p.enqueueEvent(&bgpTransFatalError{})
-						p.logger.Errorf("RX handler: read from transport connection %s", err, n)
+						p.logErr("Rx handler: failed to read %s", err)
 					}
 				}
-				packet, err := Parse(data[:n])
+				packets, err := preParse(data[:n])
 				if err != nil {
-					p.logger.Errorf("RX handler: parse packet %s", err)
+					p.logErr("RX handler: falied to pre-parse packet %s", err)
 					continue
 				}
-				switch packet.Header.Type {
-				case OPEN:
-					p.enqueueEvent(&recvOpenMsg{msg: packet})
-				case KEEPALIVE:
-					p.enqueueEvent(&recvKeepaliveMsg{msg: packet})
-				case UPDATE:
-					p.enqueueEvent(&recvUpdateMsg{msg: packet})
-				case NOTIFICATION:
-					p.enqueueEvent(&recvNotificationMsg{msg: packet})
-				default:
-					p.logger.Errorf("RX handler: %s(%s)", ErrInvalidMessageType, packet.Header.Type)
+				for _, d := range packets {
+					packet, err := Parse(d)
+					if err != nil {
+						p.logErr("RX handler: falied to parse packet %s\n%s", err, hex.Dump(d))
+						continue
+					}
+					switch packet.Header.Type {
+					case OPEN:
+						p.enqueueEvent(&recvOpenMsg{msg: packet})
+					case KEEPALIVE:
+						p.enqueueEvent(&recvKeepaliveMsg{msg: packet})
+					case UPDATE:
+						p.enqueueEvent(&recvUpdateMsg{msg: packet})
+					case NOTIFICATION:
+						p.enqueueEvent(&recvNotificationMsg{msg: packet})
+					default:
+						p.logErr("Rx handler: %s(%d)", ErrInvalidMessageType, packet.Header.Type)
+					}
 				}
 			}
 		}
@@ -355,7 +375,7 @@ func (p *peer) notifyError(d []byte, err *ErrorCode) error {
 		builder.Data(d)
 	}
 	p.tx <- builder.Packet()
-	return err
+	return fmt.Errorf("notify: %w", err)
 }
 
 func (p *peer) changeState(et eventType) error {
@@ -422,7 +442,7 @@ func (p *peer) changeState(et eventType) error {
 		return p.notifyError(nil, ErrFiniteStateMachineError)
 	}
 	if old != p.state {
-		p.logger.Infof("change state %s -> %s\n", old, p.state)
+		p.logInfo("%s -> %s", old, p.state)
 	}
 	return nil
 }
@@ -454,7 +474,7 @@ func (p *peer) moveState(state state) error {
 		return ErrInvalidBgpState
 	}
 	if old != p.state {
-		p.logger.Infof("Move state %s -> %s", old, p.state)
+		p.logInfo("%s -> %s", old, p.state)
 	}
 	return nil
 }
@@ -510,7 +530,7 @@ func (p *peer) startEvent() error {
 	switch p.state {
 	case IDLE:
 		if err := p.init(); err != nil {
-			return err
+			return fmt.Errorf("startEvent: %w", err)
 		}
 		p.enqueueEvent(&bgpTransConnOpen{})
 	}
@@ -527,20 +547,20 @@ func (p *peer) transOpenEvent(ctx context.Context) error {
 		conn, err := net.DialTCP("tcp", &net.TCPAddr{IP: p.addr}, &net.TCPAddr{IP: p.neighbor.addr, Port: PORT})
 		if err != nil {
 			// restart connect retry timer
-			p.logger.Infoln("peer connection is not open.")
+			p.logWarn("TCP peer is not open")
 			p.connRetryTimer.restart()
 			// wait for connecting from remote peer
 			if !p.listenerOpen {
 				l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: p.addr, Port: PORT})
 				if err != nil {
-					return err
+					return fmt.Errorf("transOpenEvent: %w", err)
 				}
-				p.logger.Infoln("start to listen connection from remote peer.")
+				p.logInfo("start to listen connection from remote peer")
 				p.listenerOpen = true
 				go func() {
 					conn, err := l.AcceptTCP()
 					if err != nil {
-						p.logger.Errorf("Accept transport connection: %s", err)
+						p.logErr("failed to accept TCP connection: %s", err)
 					}
 					p.connCh <- conn
 					p.enqueueEvent(&bgpTransConnOpen{})
@@ -554,7 +574,7 @@ func (p *peer) transOpenEvent(ctx context.Context) error {
 			// success to connect
 			p.finishInitiate(conn)
 			if err := p.handleConn(ctx); err != nil {
-				return err
+				return fmt.Errorf("tansOpenEvent: failed to handle conn: %w", err)
 			}
 			opts := make([]*Option, 0)
 			// auth options
@@ -566,16 +586,16 @@ func (p *peer) transOpenEvent(ctx context.Context) error {
 				opts = append(opts, &Option{Type: CAPABILITY, Length: uint8(len(b)), Value: b})
 			}
 			if err := p.sendOpenMsg(opts); err != nil {
-				return err
+				return fmt.Errorf("transOpenEvent: failed to send OPEN message: %w", err)
 			}
 		}
 	case ACTIVE:
 		conn := <-p.connCh
 		p.finishInitiate(conn)
 		if err := p.handleConn(ctx); err != nil {
-			return err
+			return fmt.Errorf("tansOpenEvent: failed to handle conn: %w", err)
 		}
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Second * 1) // sleep for sync
 		opts := make([]*Option, 0)
 		// auth options
 		for _, cap := range p.capabilities {
@@ -589,7 +609,7 @@ func (p *peer) transOpenEvent(ctx context.Context) error {
 			return err
 		}
 	default:
-		return ErrInvalidEventInCurrentState
+		return fmt.Errorf("transOpenEvent: %w", ErrInvalidEventInCurrentState)
 	}
 	return p.changeState(event_type_bgp_trans_conn_open)
 }
@@ -601,7 +621,7 @@ func (p *peer) transClosedEvent() error {
 	case ACTIVE:
 		p.conn.Close()
 	default:
-		return ErrInvalidEventInCurrentState
+		return fmt.Errorf("transClosed: %w", ErrInvalidEventInCurrentState)
 	}
 	return p.changeState(event_type_bgp_trans_conn_closed)
 }
@@ -632,7 +652,7 @@ func (p *peer) connRetryTimerExpiredEvent() error {
 		p.connRetryTimer.restart()
 		p.enqueueEvent(&bgpTransConnOpen{})
 	default:
-		return ErrInvalidEventInCurrentState
+		return fmt.Errorf("connRetryTimeExpired: %w", ErrInvalidEventInCurrentState)
 	}
 	return p.changeState(event_type_conn_retry_timer_expired)
 }
@@ -651,7 +671,7 @@ func (p *peer) keepaliveTimerExpiredEvent() error {
 		p.keepAliveTimer.restart()
 		builder := Builder(KEEPALIVE)
 		p.tx <- builder.Packet()
-		p.logger.Infof("Send KeepAlive")
+		p.logInfo("send keepalive")
 	}
 	return nil
 }
@@ -663,12 +683,12 @@ func (p *peer) recvOpenMsgEvent(evt event) error {
 		op := GetMessage[*Open](msg.msg.Message)
 		if err := op.Validate(); err != nil {
 			// OPEN failed
+			p.logErr("recvOpenMsg: Open failed: %s", err)
 			return p.notifyError(nil, err)
 		}
 		caps, _ := op.Capabilities() // ignore unsupported capability error
 		p.neighbor.capabilities = append(p.neighbor.capabilities, caps...)
 		// Process OPEN is ok
-		p.logger.Warnf("Caps")
 		p.keepAliveTimer.start()
 		builder := Builder(KEEPALIVE)
 		p.tx <- builder.Packet()
@@ -703,17 +723,17 @@ func (p *peer) recvUpdateMsgEvent(evt event) error {
 	update := GetMessage[*Update](msg.msg.Message)
 	d, err := update.Validate(msg.msg.Header.Length)
 	if err != nil {
+		p.logErr("recvUpdateMsg: validate error: %s", err)
 		return p.notifyError(d, err)
 	}
 	p.holdTimer.restart()
-	p.logger.Infof("%s", update.Dump())
 	return p.changeState(event_type_recv_update_msg)
 }
 
 func (p *peer) recvNotificationMsgEvent(evt event) error {
 	msg := evt.(*recvNotificationMsg)
 	p.conn.Close()
-	p.logger.Errorln(GetMessage[*Notification](msg.msg.Message).ErrorCode)
+	p.logErr("%s", GetMessage[*Notification](msg.msg.Message).ErrorCode)
 	p.release()
 	return p.changeState(event_type_recv_notification_msg)
 }
