@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/terassyi/grp/pkg/fib"
 	"github.com/terassyi/grp/pkg/log"
+	"github.com/terassyi/grp/pkg/rib"
 	"github.com/vishvananda/netlink"
 )
 
@@ -286,7 +286,7 @@ func (r *Rip) init() error {
 
 func (r *Rip) Poll() error {
 	ctx, _ := context.WithCancel(context.Background())
-	for idx, _ := range r.links {
+	for idx := range r.links {
 		go r.rxtxLoopLink(ctx, idx)
 	}
 	if err := r.init(); err != nil {
@@ -497,7 +497,7 @@ func (r *Rip) gc() error {
 			if err != nil {
 				return err
 			}
-			if err := fib.Delete4(link, rr.dst, nil, nil); err != nil {
+			if err := rib.Delete4(link, rr.dst, nil, nil); err != nil {
 				return err
 			}
 			continue
@@ -588,7 +588,7 @@ func (r *Rip) commit(link netlink.Link, dst *net.IPNet, gateway net.IP, metric u
 		route.gateway = gateway
 		route.metric = metric
 		route.state = ROUTE_STATE_UPDATED // set route update flag
-		return fib.Replace4(link, dst, gateway, fib.RT_PROTO_RIP)
+		return rib.Replace4(link, dst, gateway, rib.RT_PROTO_RIP)
 	}
 	r.table.mutex.Lock()
 	defer r.table.mutex.Unlock()
@@ -598,7 +598,7 @@ func (r *Rip) commit(link netlink.Link, dst *net.IPNet, gateway net.IP, metric u
 		out:     uint(link.Attrs().Index),
 		metric:  uint32(metric),
 	})
-	return fib.Add4(link, dst, gateway, fib.RT_PROTO_RIP)
+	return rib.Add4(link, dst, gateway, rib.RT_PROTO_RIP)
 }
 
 func (r *Rip) lookupTable(dst *net.IPNet) *route {
@@ -612,15 +612,15 @@ func (r *Rip) lookupTable(dst *net.IPNet) *route {
 	return nil
 }
 
-func (r *Rip) findFibRoutes(dst netip.Addr) ([]*fib.Route, error) {
-	routes := make([]*fib.Route, 0)
+func (r *Rip) findRibRoutes(dst netip.Addr) ([]*rib.Route, error) {
+	routes := make([]*rib.Route, 0)
 	for _, link := range r.links {
-		rs, err := fib.Get4(link, net.IP(dst.AsSlice()))
+		rs, err := rib.Get4(link, net.IP(dst.AsSlice()))
 		if err != nil {
 			return nil, err
 		}
 		for _, r := range rs {
-			routes = append(routes, &fib.Route{Link: link, Route: &r})
+			routes = append(routes, &rib.Route{Link: link, Route: &r})
 		}
 	}
 	if len(routes) == 0 {
