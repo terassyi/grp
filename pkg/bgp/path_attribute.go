@@ -107,7 +107,7 @@ func parsePathAttr(buf *bytes.Buffer) (PathAttr, error) {
 	return attr, nil
 }
 
-func GetPathAttr[T *ASPath | *NextHop | *Origin](attr PathAttr) T {
+func GetPathAttr[T *ASPath | *NextHop | *Origin | *MultiExitDisc](attr PathAttr) T {
 	return attr.(T)
 }
 

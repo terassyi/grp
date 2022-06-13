@@ -827,6 +827,7 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 		next            net.IP
 		asPath          ASPath
 		origin          Origin
+		med             int
 		feasiblePathes  []*Path = make([]*Path, 0)
 		withdrawnPathes []*Path = make([]*Path, 0)
 	)
@@ -860,6 +861,8 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 		case NEXT_HOP:
 			nextHop := GetPathAttr[*NextHop](attr)
 			next = nextHop.next
+		case MULTI_EXIT_DISC:
+			med = int(GetPathAttr[*MultiExitDisc](attr).discriminator)
 		}
 	}
 	// If the UPDATE message contains a non-empty Withdrawn routes field,
@@ -887,7 +890,7 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 
 		// Otherwise, if the Adj-RIB-In has no route with NLRI identical to the new route,
 		// the new route shall be placed in the Adj-RIB-In.
-		path := newPath(p.neighbor.as, next, origin, asPath, feasibleRoute, recognizedAttrs, p.link)
+		path := newPath(p.neighbor.as, next, origin, asPath, med, feasibleRoute, recognizedAttrs, p.link)
 		feasiblePathes = append(feasiblePathes, path)
 		// p.rib.In.Insert(path)
 		adjRibInUpdate = true

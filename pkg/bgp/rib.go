@@ -2,9 +2,11 @@ package bgp
 
 import (
 	"fmt"
+	"math/rand"
 	"net"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/terassyi/grp/pkg/rib"
 	"github.com/vishvananda/netlink"
@@ -25,30 +27,37 @@ import (
 // namely, the Adj-RIB-In, the Loc-RIB, and Adj-RIB-Out.
 
 type Path struct {
+	id              int
 	routes          []netlink.Route
 	as              int
 	nextHop         net.IP
 	origin          Origin
 	asPath          ASPath
+	med             int
 	nlri            *Prefix
 	recognizedAttrs []PathAttr
-	preference      int
+	reason          BestPathSelectionReason
 	picked          bool
 	link            netlink.Link
 	local           bool
+	timestamp       time.Time
 }
 
-func newPath(as int, nextHop net.IP, origin Origin, asPath ASPath, nlri *Prefix, attrs []PathAttr, link netlink.Link) *Path {
+func newPath(as int, nextHop net.IP, origin Origin, asPath ASPath, med int, nlri *Prefix, attrs []PathAttr, link netlink.Link) *Path {
+	rand.Seed(time.Now().UnixNano())
 	return &Path{
+		id:              rand.Int(),
 		as:              as,
 		nextHop:         nextHop,
 		origin:          origin,
 		asPath:          asPath,
+		med:             med,
 		nlri:            nlri,
 		recognizedAttrs: attrs,
-		preference:      0,
+		reason:          REASON_NOT_COMPARED,
 		picked:          false,
 		link:            link,
+		timestamp:       time.Now(),
 	}
 }
 
@@ -66,7 +75,7 @@ func (p *Path) String() string {
 // Routing Information Base
 type AdjRibIn struct {
 	mutex *sync.RWMutex
-	table map[string][]*Path
+	table map[string]map[int]*Path
 }
 
 func (r *AdjRibIn) Insert(path *Path) error {
@@ -74,9 +83,10 @@ func (r *AdjRibIn) Insert(path *Path) error {
 	defer r.mutex.Unlock()
 	_, ok := r.table[path.nlri.String()]
 	if !ok {
-		r.table[path.nlri.String()] = []*Path{path}
+		r.table[path.nlri.String()] = map[int]*Path{path.id: path}
 	} else {
-		r.table[path.nlri.String()] = append(r.table[path.nlri.String()], path)
+		// r.table[path.nlri.String()] = append(r.table[path.nlri.String()], path)
+		r.table[path.nlri.String()][path.id] = path
 	}
 	return nil
 }
@@ -86,22 +96,36 @@ func (r *AdjRibIn) Lookup(prefix *Prefix) []*Path {
 	defer r.mutex.RUnlock()
 	pathes, ok := r.table[prefix.String()]
 	if !ok {
-		return []*Path{}
+		return nil
 	}
-	return pathes
+	res := make([]*Path, 0)
+	for _, path := range pathes {
+		res = append(res, path)
+	}
+	return res
 }
 
-func (r *AdjRibIn) Drop(prefix *Prefix, next net.IP, asSequence []uint16) error {
+func (r *AdjRibIn) LookupById(id int) *Path {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	for _, network := range r.table {
+		path, ok := network[id]
+		if ok {
+			return path
+		}
+	}
+	return nil
+}
+
+func (r *AdjRibIn) Drop(prefix *Prefix, id int, next net.IP, asSequence []uint16) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	var (
-		deleted []*Path
-		key     string
-		target  int = -1
-	)
 	for k, v := range r.table {
 		if k == prefix.String() {
-			key = k
+			if id > 0 {
+				delete(r.table[prefix.String()], id)
+				return nil
+			}
 			for i, vv := range v {
 				var ases []uint16
 				for _, a := range vv.asPath.Segments {
@@ -110,18 +134,36 @@ func (r *AdjRibIn) Drop(prefix *Prefix, next net.IP, asSequence []uint16) error 
 					}
 				}
 				if vv.nextHop.Equal(next) && reflect.DeepEqual(ases, asSequence) {
-					target = i
+					delete(r.table[prefix.String()], i)
 				}
-			}
-			if target != -1 {
-				deleted = append(v[:target], v[target+1:]...)
 			}
 		}
 	}
-	if target != -1 {
-		r.table[key] = deleted
-	}
 	return nil
+}
+
+func (r *AdjRibIn) Picked(prefix *Prefix) (*Path, bool) {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	pathes, ok := r.table[prefix.String()]
+	if !ok {
+		return nil, false
+	}
+	for _, path := range pathes {
+		if path.picked {
+			return path, true
+		}
+	}
+	return nil, false
+}
+
+func (r *AdjRibIn) getBestPath(prefix *Prefix) (*Path, error) {
+	network := r.Lookup(prefix)
+	if network == nil {
+		return nil, fmt.Errorf("AdjRibIn_getBestPath: Network(%s) is not stored.", prefix)
+	}
+
+	return nil, nil
 }
 
 type AdjRibOut struct {
@@ -153,21 +195,6 @@ func (r *AdjRibOut) Drop(prefix *Prefix) error {
 	return nil
 }
 
-func (r *AdjRibIn) Picked(prefix *Prefix) (*Path, bool) {
-	r.mutex.RLock()
-	defer r.mutex.RUnlock()
-	pathes, ok := r.table[prefix.String()]
-	if !ok {
-		return nil, false
-	}
-	for _, path := range pathes {
-		if path.picked {
-			return path, true
-		}
-	}
-	return nil, false
-}
-
 type AdjRib struct {
 	// Adj-RIB-In: The Adj-RIB-In store routing information that has been learned from inbound UPDATE messages.
 	// 	           Their contents represent routes that are available as an input to the Decision Process.
@@ -180,7 +207,7 @@ type AdjRib struct {
 
 func newAdjRib() (*AdjRib, error) {
 	return &AdjRib{
-		In:  &AdjRibIn{mutex: &sync.RWMutex{}, table: make(map[string][]*Path)},
+		In:  &AdjRibIn{mutex: &sync.RWMutex{}, table: make(map[string]map[int]*Path)},
 		Out: &AdjRibOut{mutex: &sync.RWMutex{}, table: make(map[string]*Path)},
 	}, nil
 }
@@ -313,10 +340,14 @@ func (p *peer) Decide(path *Path, withdrawn bool) error {
 //    If the route is learned from an external peer, then the local BGP speaker computes the degree of preference based on preconfigured policy information.
 //    If the return value indicates the route is ineligible, the route MAY NOT serve as an input to the next phase of route selection;
 //    otherwise, the return value MUST be used as the LOCAL_PREF value in any IBGP readvertisement.
-func (p *peer) Calculate(path *Path) error {
-	p.rib.In.mutex.Lock()
-	defer p.rib.In.mutex.Unlock()
-	return nil
+// TODO: implement bestpath selection
+func (p *peer) compare(newPath, pickedPath *Path) (BestPathSelectionReason, bool) {
+	for i := 1; i < 12; i++ {
+		if calcMap[BestPathSelectionReason(i)](newPath, pickedPath) {
+			return BestPathSelectionReason(i), true
+		}
+	}
+	return REASON_NOT_COMPARED, false
 }
 
 // Route Selection
@@ -370,9 +401,11 @@ func (p *peer) Select(path *Path) error {
 		p.logInfo("Install into Loc-Rib: NLRI=%s NextHop=%s", path.nlri, path.nextHop)
 		return nil
 	}
-	if path.preference > pickedPath.preference {
+	reason, res := p.compare(path, pickedPath)
+	if res {
 		path.picked = true
 		pickedPath.picked = false
+		path.reason = reason
 	}
 	if err := p.rib.In.Insert(path); err != nil {
 		return fmt.Errorf("Peer_Select: %w", err)
@@ -406,4 +439,84 @@ func (p *peer) Select(path *Path) error {
 // When the updating of the Adj-RIB-Out and the Routing Table is complete, the local BGP speaker runs the update-Send process.
 func Disseminate() error {
 	return nil
+}
+
+type Preference struct {
+	reason BestPathSelectionReason
+	value  int
+}
+
+func newPreference(reason BestPathSelectionReason, value int) *Preference {
+	return &Preference{reason: reason, value: value}
+}
+
+// Compare preference between a receiver preference and a target preference.
+// If a receiver preference should be prefer to a target preference, return true.
+func (pref *Preference) Compare(target *Preference) bool {
+	if pref.reason > target.reason {
+		return false
+	} else if pref.reason < target.reason {
+		return true
+	} else {
+		return pref.value > target.value
+	}
+}
+
+type BestPathSelectionReason int
+
+// 1. WEIGHT attribute(Cisco specific)
+// 2. compare LOCAL_PREF
+// 3. is local generated route
+// 4. shortest AS_PATH attribute
+// 5. minimum ORIGIN attribute (IGP < EGP < INCOMPLETE)
+// 6. minimum MULTI_EXIT_DISC
+// 7. choose EBGP over IBGP
+// 8. prefer to minumum IGP metric route to next hop
+// 9. oldest route received from EBGP
+// 10. minumum BGP peer router id
+// 11. minimum BGP peer IP address
+const (
+	REASON_NOT_COMPARED            BestPathSelectionReason = iota
+	REASON_WEIGHT_ATTR             BestPathSelectionReason = iota
+	REASON_LOCAL_PREF_ATTR         BestPathSelectionReason = iota
+	REASON_LOCAL_ORIGINATED        BestPathSelectionReason = iota
+	REASON_AS_PATH_ATTR            BestPathSelectionReason = iota
+	REASON_ORIGIN_ATTR             BestPathSelectionReason = iota
+	REASON_MULTI_EXIT_DISC         BestPathSelectionReason = iota
+	REASON_PREFERED_EBGP_OVER_IBGP BestPathSelectionReason = iota
+	REASON_IGP_METRIC_TO_NEXT_HOP  BestPathSelectionReason = iota
+	REASON_OLDEST_ROUTE            BestPathSelectionReason = iota
+	REASON_BGP_PEER_ROUTER_ID      BestPathSelectionReason = iota
+	REASON_BGP_PEER_IP_ADDR        BestPathSelectionReason = iota
+)
+
+var calcMap = map[BestPathSelectionReason]func(*Path, *Path) bool{
+	REASON_WEIGHT_ATTR:     func(p1, p2 *Path) bool { return false },
+	REASON_LOCAL_PREF_ATTR: func(p1, p2 *Path) bool { return false },
+	REASON_LOCAL_ORIGINATED: func(p1, p2 *Path) bool {
+		if p1.local {
+			return !p2.local
+		}
+		return false
+	},
+	REASON_AS_PATH_ATTR: func(p1, p2 *Path) bool {
+		var l1, l2 int
+		for _, seg := range p1.asPath.Segments {
+			if seg.Type == SEG_TYPE_AS_SEQUENCE {
+				l1 = len(seg.AS2)
+			}
+		}
+		for _, seg := range p2.asPath.Segments {
+			if seg.Type == SEG_TYPE_AS_SEQUENCE {
+				l2 = len(seg.AS2)
+			}
+		}
+		return l1 > l2
+	},
+	REASON_ORIGIN_ATTR:             func(p1, p2 *Path) bool { return p1.origin.value < p2.origin.value },
+	REASON_MULTI_EXIT_DISC:         func(p1, p2 *Path) bool { return p1.med < p2.med },
+	REASON_PREFERED_EBGP_OVER_IBGP: func(p1, p2 *Path) bool { return false },
+	REASON_IGP_METRIC_TO_NEXT_HOP:  func(p1, p2 *Path) bool { return false },
+	REASON_BGP_PEER_ROUTER_ID:      func(p1, p2 *Path) bool { return false },
+	REASON_BGP_PEER_IP_ADDR:        func(p1, p2 *Path) bool { return false },
 }
