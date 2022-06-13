@@ -30,6 +30,8 @@
 nodes:
   - name: R0
     image: slankdev/frr
+    mounts:
+      - $(pwd)/scenario/bgp/r0/:/tmp/r0
     interfaces:
       - { name: net0, type: direct, args: R1#net0 }
       - { name: net1, type: direct, args: R2#net0 }

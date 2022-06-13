@@ -117,6 +117,9 @@ type peer struct {
 	link           netlink.Link
 	as             int
 	routerId       net.IP
+	locRib         *LocRib // reference of bgp.rib. This field is called by every peers. When handling this, we must get lock.
+	rib            *AdjRib
+	pib            any // Policy Information Base
 	holdTime       time.Duration
 	capabilities   []Capability
 	conn           *net.TCPConn
@@ -139,13 +142,16 @@ const (
 	DEFAULT_HOLD_TIME_INTERVAL          time.Duration = 180 * time.Second
 )
 
-func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int) *peer {
+func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib) *peer {
+	rib, _ := newAdjRib()
 	return &peer{
 		neighbor:       newNeighbor(addr, peerAS),
 		addr:           local,
 		link:           link,
 		as:             myAS,
 		routerId:       routerId,
+		locRib:         locRib,
+		rib:            rib,
 		holdTime:       DEFAULT_HOLD_TIME_INTERVAL,
 		capabilities:   defaultCaps(),
 		state:          IDLE,
@@ -234,6 +240,8 @@ func (p *peer) handleEvent(ctx context.Context, evt event) error {
 		return p.recvUpdateMsgEvent(evt)
 	case event_type_recv_notification_msg:
 		return p.recvNotificationMsgEvent(evt)
+	case event_type_trigger_decision_process:
+		return p.triggerDecisionProcessEvent(evt)
 	default:
 		return ErrInvalidEventType
 	}
@@ -727,6 +735,9 @@ func (p *peer) recvUpdateMsgEvent(evt event) error {
 		return p.notifyError(d, err)
 	}
 	p.holdTimer.restart()
+	if err := p.handleUpdateMsg(update); err != nil {
+		return err
+	}
 	return p.changeState(event_type_recv_update_msg)
 }
 
@@ -736,6 +747,17 @@ func (p *peer) recvNotificationMsgEvent(evt event) error {
 	p.logErr("%s", GetMessage[*Notification](msg.msg.Message).ErrorCode)
 	p.release()
 	return p.changeState(event_type_recv_notification_msg)
+}
+
+func (p *peer) triggerDecisionProcessEvent(evt event) error {
+	arg := evt.(*triggerDecisionProcess)
+	withdrawn := arg.withdrawn
+	for _, path := range arg.pathes {
+		if err := p.Decide(path, withdrawn); err != nil {
+			return fmt.Errorf("triggerDecisionProcessEvent: %w", err)
+		}
+	}
+	return nil
 }
 
 // initialize resources
@@ -794,4 +816,87 @@ func (t *timer) isStopped() bool {
 
 func (t *timer) tick() *time.Ticker {
 	return t.ticker
+}
+
+// UPDATE message handling
+// https://datatracker.ietf.org/doc/html/rfc4271#section-9
+func (p *peer) handleUpdateMsg(msg *Update) error {
+	propagateAttrs := make([]PathAttr, 0)
+	recognizedAttrs := make([]PathAttr, 0)
+	var (
+		next            net.IP
+		asPath          ASPath
+		origin          Origin
+		feasiblePathes  []*Path = make([]*Path, 0)
+		withdrawnPathes []*Path = make([]*Path, 0)
+	)
+	for _, attr := range msg.PathAttrs {
+		if attr.IsRecognized() {
+			recognizedAttrs = append(recognizedAttrs, attr)
+		}
+		// If an optional non-transitive attribute is unrecognized, it is quietly ignored.
+		if attr.IsOptional() && !attr.IsTransitive() {
+			continue
+		}
+		// If an optional transitive attribute is unrecognized, the Partial bit in the attribute flags is set to 1,
+		// and the attribute is retained for propagation to other BGP speakers.
+		if attr.IsOptional() && attr.IsTransitive() && !attr.IsRecognized() {
+			attr.SetPartial()
+			propagateAttrs = append(propagateAttrs, attr)
+		}
+
+		// If an optional attribute is recognized, and has a valid value,
+		// then, depending on the type of the optional attruibute, it is processed locally, ratained, and updated,
+		// if necessary, for possible propagation to other BGP speakers.
+		if attr.IsOptional() && attr.IsRecognized() {
+			// handle attribute
+		}
+
+		switch attr.Type() {
+		case ORIGIN:
+			origin = *GetPathAttr[*Origin](attr)
+		case AS_PATH:
+			asPath = *GetPathAttr[*ASPath](attr)
+		case NEXT_HOP:
+			nextHop := GetPathAttr[*NextHop](attr)
+			next = nextHop.next
+		}
+	}
+	// If the UPDATE message contains a non-empty Withdrawn routes field,
+	// the previously advertised routes whose destinations (expressed as IP prefixes) are contained in this field, shall be removed from the Adj-RIB-In.
+	// This BGP speaker shall run its Decision Process because the previously advertised route is no longer available for use.
+	withdrawn := false
+	for _, withdrawnRoute := range msg.WithdrawnRoutes {
+		// handle withdrawn routes
+		withdrawn = true
+		withdrawnPathes = append(withdrawnPathes, &Path{nlri: withdrawnRoute})
+		p.logInfo("withdrawing route %s", withdrawnRoute)
+	}
+	if withdrawn {
+		p.enqueueEvent(&triggerDecisionProcess{pathes: withdrawnPathes, withdrawn: withdrawn})
+	}
+
+	// If the UPDATE message contains a feasible route, the Adj-RIB-In will be updated with this route as follows:
+	adjRibInUpdate := false
+	for _, feasibleRoute := range msg.NetworkLayerReachabilityInfo {
+		// handle network layer reachability information
+		p.logInfo("feasible route %s", feasibleRoute)
+		// if the NLRI of the new route is idnetical to the one the route currently has stored in the Adj-RIB-In,
+		// then the new route shall replace the older route in the Adj-RIB-In,
+		// thus implicitly withdrawing the older route from service.
+
+		// Otherwise, if the Adj-RIB-In has no route with NLRI identical to the new route,
+		// the new route shall be placed in the Adj-RIB-In.
+		path := newPath(p.neighbor.as, next, origin, asPath, feasibleRoute, recognizedAttrs, p.link)
+		feasiblePathes = append(feasiblePathes, path)
+		// p.rib.In.Insert(path)
+		adjRibInUpdate = true
+		// p.logInfo("Insert into Adg-RIB-In: %s", path)
+		// Once the BGP speaker updates the Adj-RIB-In, the speaker shall run its Decision Process.
+	}
+	// trigger decision process event
+	if adjRibInUpdate {
+		p.enqueueEvent(&triggerDecisionProcess{pathes: feasiblePathes, withdrawn: false})
+	}
+	return nil
 }

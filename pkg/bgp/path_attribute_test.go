@@ -128,7 +128,7 @@ func TestParsePathAttribute(t *testing.T) {
 	}
 }
 
-func TestPathAttrDecode(t *testing.T) {
+func TestPathAttr_Decode(t *testing.T) {
 	tests := []struct {
 		name     string
 		data     []byte
@@ -178,7 +178,7 @@ func TestPathAttrDecode(t *testing.T) {
 	}
 }
 
-func TestPathAttrIsTransitive(t *testing.T) {
+func TestPathAttr_IsTransitive(t *testing.T) {
 	tests := []struct {
 		name         string
 		data         []byte
@@ -217,6 +217,47 @@ func TestPathAttrIsTransitive(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.typ, attr.Type())
 			assert.Equal(t, tt.isTransitive, attr.IsTransitive())
+		})
+	}
+}
+
+func TestASPath_CheckLoop(t *testing.T) {
+	tests := []struct {
+		name   string
+		asPath ASPath
+		res    bool
+	}{
+		{name: "NO LOOP 1", asPath: ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{100, 200, 300}}}}, res: false},
+		{name: "NO LOOP 2", asPath: ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{100, 200, 300, 500, 1000}}}}, res: false},
+		{name: "LOOP 1", asPath: ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{100, 200, 300, 100}}}}, res: true},
+		{name: "LOOP 2", asPath: ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{100, 200, 1000, 300, 500, 1000}}}}, res: true},
+	}
+	t.Parallel()
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.res, tt.asPath.CheckLoop())
+		})
+	}
+}
+
+func TestASPath_Contains(t *testing.T) {
+	tests := []struct {
+		name   string
+		asPath ASPath
+		as     int
+		res    bool
+	}{
+		{name: "CONTAIN 1", asPath: ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{100, 200, 300}}}}, as: 200, res: true},
+		{name: "CONTAIN 2", asPath: ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{100, 200, 300, 500, 1000}}}}, as: 1000, res: true},
+		{name: "NOT CONTAIN 1", asPath: ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{100, 200, 300, 100}}}}, as: 11, res: false},
+		{name: "NOT CONTAIN 2", asPath: ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{100, 200, 1000, 300, 500, 1000}}}}, as: 600, res: false},
+	}
+	t.Parallel()
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.res, tt.asPath.Contains(tt.as))
 		})
 	}
 }

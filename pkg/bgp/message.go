@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -101,6 +103,24 @@ type Prefix struct {
 
 func (p *Prefix) String() string {
 	return fmt.Sprintf("%s/%d", p.Prefix, p.Length)
+}
+
+func (p *Prefix) Network() *net.IPNet {
+	_, cidr, _ := net.ParseCIDR(p.String())
+	return cidr
+}
+
+func PrefixFromString(str string) *Prefix {
+	s := strings.Split(str, "/")
+	l, _ := strconv.Atoi(s[1])
+	return &Prefix{
+		Length: uint8(l),
+		Prefix: net.ParseIP(s[0]),
+	}
+}
+
+func PrefixFromIPNet(cidr *net.IPNet) *Prefix {
+	return PrefixFromString(cidr.String())
 }
 
 // Path attributes fall into four separate categories:

@@ -61,6 +61,10 @@ bgp_test: up
 	$(COMPOSE) -f $(BGP_TEST_COMPOSE) exec $(BGP_TESt_GRP_CONTAINER_NAME) $(GOTEST) -v ./...
 	@echo "----- Integration Test -----"
 
+.PHONY: bgp_test_down
+bgp_test_down:
+	$(COMPOSE) -f $(BGP_TEST_COMPOSE) down 
+
 .PHONY:
 
 .PHONY: clean

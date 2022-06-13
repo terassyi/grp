@@ -30,8 +30,8 @@ type Bgp struct {
 	routerId     net.IP
 	server       *server
 	peers        map[string]*peer // key: ipaddr string, value: peer struct pointer
+	locRib       *LocRib
 	networks     []*network
-	neighborMap  map[string]net.IP // key: local addr, value: neighbor addr
 	requestQueue chan *Request
 	logger       log.Logger
 	signalCh     chan os.Signal
@@ -75,10 +75,6 @@ func (s state) String() string {
 	}
 }
 
-type message struct {
-	data []byte
-}
-
 var (
 	ErrASNumberIsRequired         error = errors.New("AS Number is required.")
 	ErrInvalidBgpState            error = errors.New("Invalid BGP state.")
@@ -104,9 +100,14 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 	signal.Notify(sigCh,
 		syscall.SIGINT,
 		syscall.SIGTERM)
+	locRib, err := NewLocRib()
+	if err != nil {
+		return nil, err
+	}
 	return &Bgp{
 		port:         port,
 		peers:        make(map[string]*peer),
+		locRib:       locRib,
 		logger:       logger,
 		requestQueue: make(chan *Request, 16),
 		networks:     make([]*network, 0),
@@ -248,7 +249,7 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 			return nil, err
 		}
 	}
-	p := newPeer(b.logger, link, local, addr, ri, myAS, peerAS)
+	p := newPeer(b.logger, link, local, addr, ri, myAS, peerAS, b.locRib)
 	if _, ok := b.peers[addr.String()]; ok && !force {
 		return nil, ErrPeerAlreadyRegistered
 	}

@@ -14,6 +14,9 @@ package bgp
 // 11. Receive KEEPALIVE message
 // 12. Receive UPDATE messages
 // 13. Receive NOTIFICATION message
+//
+// Original event
+// 14. Trigger Decision Process event
 type event interface {
 	typ() eventType
 }
@@ -34,6 +37,8 @@ const (
 	event_type_recv_keepalive_msg         eventType = iota + 1
 	event_type_recv_update_msg            eventType = iota + 1
 	event_type_recv_notification_msg      eventType = iota + 1
+
+	event_type_trigger_decision_process eventType = iota + 1
 )
 
 func (t eventType) String() string {
@@ -64,6 +69,8 @@ func (t eventType) String() string {
 		return "Receive update message"
 	case event_type_recv_notification_msg:
 		return "Receive notification message"
+	case event_type_trigger_decision_process:
+		return "Trigger decision process"
 	default:
 		return "Unknown event type"
 	}
@@ -101,6 +108,11 @@ type recvUpdateMsg struct {
 
 type recvNotificationMsg struct {
 	msg *Packet
+}
+
+type triggerDecisionProcess struct {
+	pathes    []*Path
+	withdrawn bool
 }
 
 func (*bgpStart) typ() eventType {
@@ -153,4 +165,8 @@ func (*recvUpdateMsg) typ() eventType {
 
 func (*recvNotificationMsg) typ() eventType {
 	return event_type_recv_notification_msg
+}
+
+func (*triggerDecisionProcess) typ() eventType {
+	return event_type_trigger_decision_process
 }
