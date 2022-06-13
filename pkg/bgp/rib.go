@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/terassyi/grp/pkg/fib"
+	"github.com/terassyi/grp/pkg/rib"
 	"github.com/vishvananda/netlink"
 )
 
@@ -206,7 +206,7 @@ func setupLocRib(family int) ([]netlink.Route, error) {
 		return nil, fmt.Errorf("setupLocRib: failed to get interfaces: %w", err)
 	}
 	for _, iface := range interfaces {
-		rs, err := fib.LookUp4(iface)
+		rs, err := rib.LookUp4(iface)
 		if err != nil {
 			return nil, fmt.Errorf("setupLocRib: failed to get route in %s: %w", iface.Attrs().Name, err)
 		}
@@ -237,7 +237,7 @@ func (l *LocRib) InsertPath(path *Path) error {
 	l.mutex.Lock()
 	l.table[path.nlri.String()] = path
 	l.mutex.Unlock()
-	routes, err := l.isntallToFib(path.link, path.nlri.Network(), path.nextHop)
+	routes, err := l.isntallToRib(path.link, path.nlri.Network(), path.nextHop)
 	if err != nil {
 		return fmt.Errorf("LocRib_InsertPath: %w", err)
 	}
@@ -245,21 +245,21 @@ func (l *LocRib) InsertPath(path *Path) error {
 	return nil
 }
 
-func (l *LocRib) isntallToFib(link netlink.Link, cidr *net.IPNet, next net.IP) ([]netlink.Route, error) {
-	routes, err := fib.Get4(link, cidr.IP)
+func (l *LocRib) isntallToRib(link netlink.Link, cidr *net.IPNet, next net.IP) ([]netlink.Route, error) {
+	routes, err := rib.Get4(link, cidr.IP)
 	if err != nil {
-		return nil, fmt.Errorf("LocRib_installToFib: %w", err)
+		return nil, fmt.Errorf("LocRib_installToRib: %w", err)
 	}
 	if len(routes) == 0 {
-		if err := fib.Add4(link, cidr, next, fib.RT_PROTO_BGP); err != nil {
-			return nil, fmt.Errorf("LocRib_installToFib: %w", err)
+		if err := rib.Add4(link, cidr, next, rib.RT_PROTO_BGP); err != nil {
+			return nil, fmt.Errorf("LocRib_installToRib: %w", err)
 		}
 	} else {
-		if err := fib.Replace4(link, cidr, next, fib.RT_PROTO_BGP); err != nil {
-			return nil, fmt.Errorf("LocRib_installToFib: %w", err)
+		if err := rib.Replace4(link, cidr, next, rib.RT_PROTO_BGP); err != nil {
+			return nil, fmt.Errorf("LocRib_installToRib: %w", err)
 		}
 	}
-	return fib.Get4(link, cidr.IP)
+	return rib.Get4(link, cidr.IP)
 }
 
 func (l *LocRib) IsReachable(addr net.IP) bool {
