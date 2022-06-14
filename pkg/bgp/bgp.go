@@ -31,6 +31,7 @@ type Bgp struct {
 	server       *server
 	peers        map[string]*peer // key: ipaddr string, value: peer struct pointer
 	locRib       *LocRib
+	adjRib       *AdjRib
 	networks     []*network
 	requestQueue chan *Request
 	logger       log.Logger
@@ -104,10 +105,15 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 	if err != nil {
 		return nil, err
 	}
+	adjRib, err := newAdjRib()
+	if err != nil {
+		return nil, err
+	}
 	return &Bgp{
 		port:         port,
 		peers:        make(map[string]*peer),
 		locRib:       locRib,
+		adjRib:       adjRib,
 		logger:       logger,
 		requestQueue: make(chan *Request, 16),
 		networks:     make([]*network, 0),
@@ -249,7 +255,7 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 			return nil, err
 		}
 	}
-	p := newPeer(b.logger, link, local, addr, ri, myAS, peerAS, b.locRib)
+	p := newPeer(b.logger, link, local, addr, ri, myAS, peerAS, b.locRib, b.adjRib)
 	if _, ok := b.peers[addr.String()]; ok && !force {
 		return nil, ErrPeerAlreadyRegistered
 	}

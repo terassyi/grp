@@ -183,6 +183,20 @@ func (p PathAttrType) String() string {
 	}
 }
 
+type PathAttrTypeSet interface {
+	*UnimplementedPathAttr | *Origin | *ASPath | *NextHop | *MultiExitDisc | *LocalPref
+}
+
+func GetFromPathAttrs[T PathAttrTypeSet](attrs []PathAttr) T {
+	for _, attr := range attrs {
+		switch t := attr.(type) {
+		case T:
+			return t
+		}
+	}
+	return nil
+}
+
 type UnimplementedPathAttr struct {
 	*pathAttr
 	length int
@@ -506,6 +520,24 @@ func (attr ASPath) Contains(as int) bool {
 		}
 	}
 	return false
+}
+
+func (attr ASPath) GetSequence() []uint16 {
+	for _, seg := range attr.Segments {
+		if seg.Type == SEG_TYPE_AS_SEQUENCE {
+			return seg.AS2
+		}
+	}
+	return nil
+}
+
+func (attr ASPath) GetSet() []uint16 {
+	for _, seg := range attr.Segments {
+		if seg.Type == SEG_TYPE_AS_SET {
+			return seg.AS2
+		}
+	}
+	return nil
 }
 
 // The NEXT_HOP is a well-known mandatory attribute that defines the IP address of the router that SHOULD be used as the next hop to the destinations listed in the UPDATE message.

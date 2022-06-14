@@ -301,53 +301,10 @@ func TestPeer_Select(t *testing.T) {
 	logger, err := log.New(log.NoLog, "")
 	require.NoError(t, err)
 	r, _ := NewLocRib()
+	ar, _ := newAdjRib()
 	eth0, err := netlink.LinkByName("eth0")
 	require.NoError(t, err)
-	p := newPeer(logger, eth0, net.ParseIP("10.0.0.2"), net.ParseIP("10.0.0.3"), net.ParseIP("1.1.1.1"), 100, 200, r)
-	p.rib.In.Insert(&Path{
-		link:    eth0,
-		nlri:    &Prefix{Length: 24, Prefix: net.ParseIP("10.1.0.0")},
-		nextHop: net.ParseIP("10.0.0.3"),
-		asPath: ASPath{
-			Segments: []*ASPathSegment{
-				{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{200, 300}},
-			},
-		},
-		picked: false,
-	})
-	p.rib.In.Insert(&Path{
-		link:    eth0,
-		nlri:    &Prefix{Length: 24, Prefix: net.ParseIP("10.2.0.0")},
-		nextHop: net.ParseIP("10.0.0.3"),
-		asPath: ASPath{
-			Segments: []*ASPathSegment{
-				{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{200, 400}},
-			},
-		},
-		picked: false,
-	})
-	p.rib.In.Insert(&Path{
-		link:    eth0,
-		nlri:    &Prefix{Length: 24, Prefix: net.ParseIP("10.2.0.0")},
-		nextHop: net.ParseIP("10.0.0.3"),
-		asPath: ASPath{
-			Segments: []*ASPathSegment{
-				{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{200, 400}},
-			},
-		},
-		picked: false,
-	})
-	p.rib.In.Insert(&Path{
-		link:    eth0,
-		nlri:    &Prefix{Length: 24, Prefix: net.ParseIP("10.3.0.0")},
-		nextHop: net.ParseIP("10.0.0.3"),
-		asPath: ASPath{
-			Segments: []*ASPathSegment{
-				{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{200}},
-			},
-		},
-		picked: true,
-	})
+	p := newPeer(logger, eth0, net.ParseIP("10.0.0.2"), net.ParseIP("10.0.0.3"), net.ParseIP("1.1.1.1"), 100, 200, r, ar)
 
 	tests := []struct {
 		name            string
