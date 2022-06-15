@@ -132,14 +132,27 @@ func (b BestPathSelectionReason) String() string {
 // https://www.cisco.com/c/ja_jp/support/docs/ip/border-gateway-protocol-bgp/13753-25.html
 func sortPathes(pathes []*Path) ([]*Path, BestPathSelectionReason) {
 	reason := REASON_NOT_COMPARED
+	if len(pathes) == 1 {
+		reason = REASON_ONLY_PATH
+	}
 	p := pathes
 	sort.SliceStable(p, func(i, j int) bool {
-		for i, f := range compareFuncs {
+		var path *Path
+		for k, f := range compareFuncs {
 			p1 := p[i]
 			p2 := p[j]
-			newPath := f(p1, p2)
+			path = f(p1, p2)
+			if path != nil {
+				reason = BestPathSelectionReason(k)
+				return path == p1
+			}
 		}
+		if path == nil {
+			return false
+		}
+		return path == pathes[i]
 	})
+	return p, reason
 }
 
 type compareFunc func(p1, p2 *Path) *Path
