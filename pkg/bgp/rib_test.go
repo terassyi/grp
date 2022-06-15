@@ -50,8 +50,8 @@ func TestLocRib_InsertPath(t *testing.T) {
 		path    *Path
 		wantErr bool
 	}{
-		{name: "VALID 1", path: &Path{link: eth0, nlri: PrefixFromString("10.0.0.0/24"), nextHop: net.ParseIP("10.0.0.2"), picked: true}, wantErr: false},
-		{name: "VALID 2", path: &Path{link: eth1, nlri: PrefixFromString("10.0.1.0/24"), nextHop: net.ParseIP("10.0.1.3"), picked: true}, wantErr: false},
+		{name: "VALID 1", path: &Path{link: eth0, nlri: PrefixFromString("10.0.0.0/24"), nextHop: net.ParseIP("10.0.0.2")}, wantErr: false},
+		{name: "VALID 2", path: &Path{link: eth1, nlri: PrefixFromString("10.0.1.0/24"), nextHop: net.ParseIP("10.0.1.3")}, wantErr: false},
 	}
 	t.Parallel()
 	for _, tt := range tests {
@@ -310,47 +310,80 @@ func TestPeer_Select(t *testing.T) {
 		name            string
 		path            *Path
 		adjRibInPathLen int
-		expectPick      bool
+		expectedBest    bool
+		expectedReason  BestPathSelectionReason
 		wantErr         bool
 	}{
 		{
 			name: "10.0.2.0/24 10.0.0.3 [200]",
 			path: &Path{
+				id:      1,
 				link:    eth0,
 				nlri:    PrefixFromString("10.0.2.0/24"),
 				nextHop: net.ParseIP("10.0.0.3"),
 				asPath:  ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{200}}}},
-				picked:  false,
 			},
 			adjRibInPathLen: 1,
-			expectPick:      true,
+			expectedBest:    true,
+			expectedReason:  REASON_ONLY_PATH,
 			wantErr:         false,
 		},
 		{
 			name: "10.0.2.0/24 10.0.0.3 [200, 300]",
 			path: &Path{
+				id:      2,
 				link:    eth0,
 				nlri:    PrefixFromString("10.0.2.0/24"),
 				nextHop: net.ParseIP("10.0.0.3"),
 				asPath:  ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{200, 300}}}},
-				picked:  false,
 			},
 			adjRibInPathLen: 2,
-			expectPick:      false,
+			expectedBest:    false,
+			expectedReason:  REASON_AS_PATH_ATTR,
 			wantErr:         false,
 		},
 		{
-			name: "10.0.2.0/24 10.0.0.3 [200, 300, 200] ASLoop",
+			name: "10.0.2.0/24 10.0.0.3 [200, 300, 200] Err ASLoop",
 			path: &Path{
+				id:      3,
 				link:    eth0,
 				nlri:    PrefixFromString("10.0.2.0/24"),
 				nextHop: net.ParseIP("10.0.0.3"),
 				asPath:  ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{200, 300, 200}}}},
-				picked:  false,
 			},
 			adjRibInPathLen: 2,
-			expectPick:      false,
+			expectedBest:    false,
 			wantErr:         true,
+		},
+		{
+			name: "10.0.2.0/24 10.0.0.3 [] Local",
+			path: &Path{
+				id:   3,
+				link: eth0,
+				nlri: PrefixFromString("10.0.2.0/24"),
+				// nextHop: net.ParseIP("10.0.0.3"),
+				asPath: ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{}}}},
+				local:  true,
+			},
+			adjRibInPathLen: 3,
+			expectedBest:    true,
+			expectedReason:  REASON_LOCAL_ORIGINATED,
+			wantErr:         false,
+		},
+		{
+			name: "10.0.2.0/24 10.0.0.3 [200, 400]",
+			path: &Path{
+				id:        4,
+				link:      eth0,
+				nlri:      PrefixFromString("10.0.2.0/24"),
+				nextHop:   net.ParseIP("10.0.0.3"),
+				asPath:    ASPath{Segments: []*ASPathSegment{{Type: SEG_TYPE_AS_SEQUENCE, AS2: []uint16{200, 400}}}},
+				localPref: 110,
+			},
+			adjRibInPathLen: 4,
+			expectedBest:    true,
+			expectedReason:  REASON_LOCAL_PREF_ATTR,
+			wantErr:         false,
 		},
 	}
 	t.Cleanup(func() {
@@ -361,8 +394,8 @@ func TestPeer_Select(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
+		t.Log("Clean up")
 	})
-	t.Parallel()
 	for _, tt := range tests {
 		ctx, cancel := context.WithCancel(context.Background())
 		tt := tt
@@ -382,25 +415,23 @@ func TestPeer_Select(t *testing.T) {
 
 		}(ctx, t)
 		t.Run(tt.name, func(t *testing.T) {
+			tt := tt
 			t.Log(tt.path.nlri.Network())
 			err := p.Select(tt.path)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectPick, tt.path.picked)
-				if tt.expectPick {
-					pickedRoute, ok := p.rib.In.Picked(tt.path.nlri)
-					t.Log(tt.path.reason)
-					require.Equal(t, true, ok)
-					assert.Equal(t, tt.path, pickedRoute)
-				} else {
-					pickedRoute, ok := p.rib.In.Picked(tt.path.nlri)
-					require.Equal(t, true, ok)
-					assert.NotEqual(t, tt.path, pickedRoute)
+				assert.Equal(t, tt.expectedBest, tt.path.best)
+				if tt.expectedBest {
+					assert.Equal(t, tt.expectedReason, tt.path.reason)
 				}
 			}
-			assert.Equal(t, tt.adjRibInPathLen, len(p.rib.In.table[tt.path.nlri.String()]))
+			t.Logf("Adj-Rib-In[%s]", tt.path.nlri)
+			for _, path := range p.rib.In.table[tt.path.nlri.String()] {
+				t.Log(path)
+			}
+			// assert.Equal(t, tt.adjRibInPathLen, len(p.rib.In.table[tt.path.nlri.String()]))
 		})
 		cancel()
 	}

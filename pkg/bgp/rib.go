@@ -94,37 +94,6 @@ func (r *AdjRibIn) Drop(prefix *Prefix, id int, next net.IP, asSequence []uint16
 	return nil
 }
 
-func (r *AdjRibIn) Picked(prefix *Prefix) (*Path, bool) {
-	r.mutex.RLock()
-	defer r.mutex.RUnlock()
-	pathes, ok := r.table[prefix.String()]
-	if !ok {
-		return nil, false
-	}
-	for _, path := range pathes {
-		if path.picked {
-			return path, true
-		}
-	}
-	return nil, false
-}
-
-func (r *AdjRibIn) getBestPath(condig *BestPathConfig, prefix *Prefix) (*Path, BestPathSelectionReason, error) {
-	network := r.Lookup(prefix)
-	if network == nil {
-		return nil, REASON_INVALID, fmt.Errorf("AdjRibIn_getBestPath: Network(%s) is not stored.", prefix)
-	}
-	// only path
-	if len(network) == 1 {
-		return network[0], REASON_ONLY_PATH, nil
-	}
-	// weight
-	// local_pref
-	// originated by local
-
-	return nil, REASON_INVALID, nil
-}
-
 type AdjRibOut struct {
 	mutex *sync.RWMutex
 	table map[string]*Path
@@ -217,9 +186,6 @@ func (l *LocRib) Insert(network string) error {
 }
 
 func (l *LocRib) InsertPath(path *Path) error {
-	if !path.picked {
-		return fmt.Errorf("LocRib_InsertPath: given path is not picked")
-	}
 	l.mutex.Lock()
 	l.table[path.nlri.String()] = path
 	l.mutex.Unlock()
@@ -300,8 +266,23 @@ func (p *peer) Decide(path *Path, withdrawn bool) error {
 //    If the return value indicates the route is ineligible, the route MAY NOT serve as an input to the next phase of route selection;
 //    otherwise, the return value MUST be used as the LOCAL_PREF value in any IBGP readvertisement.
 // TODO: implement bestpath selection
-func (p *peer) compare(newPath, pickedPath *Path) (BestPathSelectionReason, bool) {
-	return REASON_NOT_COMPARED, false
+func (p *peer) Calculate(nlri *Prefix, bestPathConfig *BestPathConfig) (BestPathSelectionReason, *Path, error) {
+	pathes := p.rib.In.Lookup(nlri)
+	if pathes == nil {
+		return REASON_INVALID, nil, fmt.Errorf("Peer_Calculate: path is not found for %s", nlri)
+	}
+	p.rib.In.mutex.Lock()
+	defer p.rib.In.mutex.Unlock()
+	res, reason := sortPathes(pathes)
+	if len(res) == 0 {
+		return REASON_INVALID, nil, fmt.Errorf("Peer_Calculate: path is not found for %s", nlri)
+	}
+	// mark best
+	res[0].best = true
+	for i := 1; i < len(res); i++ {
+		res[i].best = false
+	}
+	return reason, res[0], nil
 }
 
 // Route Selection
@@ -344,32 +325,22 @@ func (p *peer) Select(path *Path) error {
 		p.logInfo("AS_PATH contains local AS number")
 		return nil
 	}
-
-	pickedPath, ok := p.rib.In.Picked(path.nlri)
-	if !ok {
-		path.picked = true
-		p.rib.In.Insert(path)
-		if err := p.locRib.InsertPath(path); err != nil {
-			return fmt.Errorf("Peer_Select: %w", err)
-		}
-		p.logInfo("Install into Loc-Rib: NLRI=%s NextHop=%s", path.nlri, path.nextHop)
-		return nil
-	}
-	reason, res := p.compare(path, pickedPath)
-	if res {
-		path.picked = true
-		pickedPath.picked = false
-		path.reason = reason
-	}
+	// Insert into Adj-Rib-In
 	if err := p.rib.In.Insert(path); err != nil {
 		return fmt.Errorf("Peer_Select: %w", err)
 	}
 
-	if path.picked {
-		if err := p.locRib.InsertPath(path); err != nil {
-			return fmt.Errorf("Peer_Select :%w", err)
+	reason, bestPath, err := p.Calculate(path.nlri, p.bestPathConfig)
+	if err != nil {
+		return fmt.Errorf("Peer_Select: %w", err)
+	}
+	p.logInfo("Best path selected %s by reason %s", bestPath, reason)
+	p.rib.In.mutex.RLock()
+	defer p.rib.In.mutex.RUnlock()
+	if bestPath.id == path.id {
+		if err := p.locRib.InsertPath(bestPath); err != nil {
+			return fmt.Errorf("Peer_Select: %w", err)
 		}
-		p.logInfo("Replace Loc-Rib: NLRI=%s NextHop=%s", path.nlri, path.nextHop)
 	}
 	return nil
 }

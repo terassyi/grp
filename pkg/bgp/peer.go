@@ -135,6 +135,7 @@ type peer struct {
 	holdTimer      *timer
 	initialized    bool
 	listenerOpen   bool
+	bestPathConfig *BestPathConfig
 }
 
 type peerInfo struct {

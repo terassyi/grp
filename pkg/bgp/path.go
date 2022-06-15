@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/vishvananda/netlink"
@@ -24,7 +25,7 @@ type Path struct {
 	nlri            *Prefix
 	recognizedAttrs []PathAttr
 	reason          BestPathSelectionReason
-	picked          bool
+	best            bool
 	link            netlink.Link
 	local           bool
 	timestamp       time.Time
@@ -44,7 +45,7 @@ func newPath(info *peerInfo, as int, nextHop net.IP, origin Origin, asPath ASPat
 		nlri:            nlri,
 		recognizedAttrs: attrs,
 		reason:          REASON_NOT_COMPARED,
-		picked:          false,
+		best:            false,
 		link:            link,
 		local:           false,
 		timestamp:       time.Now(),
@@ -56,13 +57,17 @@ func (p *Path) String() string {
 	for _, attr := range p.recognizedAttrs {
 		attrTypes += attr.Type().String() + ","
 	}
-	if len(p.recognizedAttrs) == 0 {
-		return fmt.Sprintf("AS=%d NEXT HOP=%s NLRI=%s ATTRIBUTES=None", p.as, p.nextHop, p.nlri)
+	if attrTypes == "" {
+		attrTypes = "None"
+	} else {
+		attrTypes = attrTypes[:len(attrTypes)-1]
 	}
-	return fmt.Sprintf("AS=%d NEXT HOP=%s NLRI=%s ATTRIBUTES=%s", p.as, p.nextHop, p.nlri, attrTypes[:len(attrTypes)-1])
+	return fmt.Sprintf("AS=%d NEXT HOP=%s NLRI=%s ATTRIBUTES=%s Best=%v ID=%d", p.as, p.nextHop, p.nlri, attrTypes, p.best, p.id)
 }
 
-type BestPathConfig struct{}
+type BestPathConfig struct {
+	mutex *sync.RWMutex
+}
 
 type BestPathSelectionReason int
 
