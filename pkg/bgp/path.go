@@ -78,8 +78,6 @@ type BestPathSelectionReason int
 // 10. minumum BGP peer router id
 // 11. minimum BGP peer IP address
 const (
-	REASON_NOT_COMPARED           BestPathSelectionReason = iota
-	REASON_ONLY_PATH              BestPathSelectionReason = iota
 	REASON_WEIGHT_ATTR            BestPathSelectionReason = iota
 	REASON_LOCAL_PREF_ATTR        BestPathSelectionReason = iota
 	REASON_LOCAL_ORIGINATED       BestPathSelectionReason = iota
@@ -91,7 +89,10 @@ const (
 	REASON_OLDER_ROUTE            BestPathSelectionReason = iota
 	REASON_BGP_PEER_ROUTER_ID     BestPathSelectionReason = iota
 	REASON_BGP_PEER_IP_ADDR       BestPathSelectionReason = iota
-	REASON_INVALID                BestPathSelectionReason = iota
+
+	REASON_INVALID      BestPathSelectionReason = 253
+	REASON_NOT_COMPARED BestPathSelectionReason = 254
+	REASON_ONLY_PATH    BestPathSelectionReason = 255
 )
 
 func (b BestPathSelectionReason) String() string {
@@ -131,9 +132,13 @@ func (b BestPathSelectionReason) String() string {
 
 // https://www.cisco.com/c/ja_jp/support/docs/ip/border-gateway-protocol-bgp/13753-25.html
 func sortPathes(pathes []*Path) ([]*Path, BestPathSelectionReason) {
+	if len(pathes) == 0 {
+		return nil, REASON_INVALID
+	}
 	reason := REASON_NOT_COMPARED
 	if len(pathes) == 1 {
 		reason = REASON_ONLY_PATH
+		pathes[0].reason = REASON_ONLY_PATH
 	}
 	p := pathes
 	sort.SliceStable(p, func(i, j int) bool {
@@ -144,6 +149,7 @@ func sortPathes(pathes []*Path) ([]*Path, BestPathSelectionReason) {
 			path = f(p1, p2)
 			if path != nil {
 				reason = BestPathSelectionReason(k)
+				path.reason = reason
 				return path == p1
 			}
 		}
@@ -152,6 +158,7 @@ func sortPathes(pathes []*Path) ([]*Path, BestPathSelectionReason) {
 		}
 		return path == pathes[i]
 	})
+	reason = pathes[0].reason
 	return p, reason
 }
 
@@ -268,8 +275,8 @@ func compareOlderRoute(p1, p2 *Path) *Path {
 }
 
 func comparePeerRouterId(p1, p2 *Path) *Path {
-	id1 := binary.BigEndian.Uint32(p1.info.neighbor.routerId)
-	id2 := binary.BigEndian.Uint32(p2.info.neighbor.routerId)
+	id1 := binary.BigEndian.Uint32(p1.info.neighbor.routerId.To4())
+	id2 := binary.BigEndian.Uint32(p2.info.neighbor.routerId.To4())
 	if id1 > id2 {
 		return p2
 	}
@@ -279,8 +286,8 @@ func comparePeerRouterId(p1, p2 *Path) *Path {
 	return nil
 }
 func comparePeerAddress(p1, p2 *Path) *Path {
-	addr1 := binary.BigEndian.Uint32(p1.info.neighbor.addr)
-	addr2 := binary.BigEndian.Uint32(p2.info.neighbor.addr)
+	addr1 := binary.BigEndian.Uint32(p1.info.neighbor.addr.To4())
+	addr2 := binary.BigEndian.Uint32(p2.info.neighbor.addr.To4())
 	if addr1 > addr2 {
 		return p2
 	}
@@ -291,8 +298,6 @@ func comparePeerAddress(p1, p2 *Path) *Path {
 }
 
 var compareFuncs []compareFunc = []compareFunc{
-	func(p1, p2 *Path) *Path { return nil },
-	func(p1, p2 *Path) *Path { return nil },
 	compareWeight,
 	compareLocalPref,
 	compareLocalOriginated,
