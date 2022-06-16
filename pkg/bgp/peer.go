@@ -111,12 +111,13 @@ import (
 //          ---------------------------------------------------------------
 
 type peer struct {
-	neighbor       *neighbor
-	addr           net.IP
-	port           int
-	link           netlink.Link
-	as             int
-	routerId       net.IP
+	*peerInfo
+	// neighbor       *neighbor
+	// addr           net.IP
+	// port           int
+	// link           netlink.Link
+	// as             int
+	// routerId       net.IP
 	locRib         *LocRib // reference of bgp.rib. This field is called by every peers. When handling this, we must get lock.
 	rib            *AdjRib
 	pib            any // Policy Information Base
@@ -134,6 +135,21 @@ type peer struct {
 	holdTimer      *timer
 	initialized    bool
 	listenerOpen   bool
+	bestPathConfig *BestPathConfig
+}
+
+type peerInfo struct {
+	neighbor  *neighbor
+	link      netlink.Link
+	addr      net.IP
+	port      int
+	as        int
+	routerId  net.IP
+	timestamp time.Time
+}
+
+func (pi *peerInfo) isIBGP() bool {
+	return pi.as == pi.neighbor.as
 }
 
 const (
@@ -142,16 +158,18 @@ const (
 	DEFAULT_HOLD_TIME_INTERVAL          time.Duration = 180 * time.Second
 )
 
-func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib) *peer {
-	rib, _ := newAdjRib()
+func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib, adjRib *AdjRib) *peer {
 	return &peer{
-		neighbor:       newNeighbor(addr, peerAS),
-		addr:           local,
-		link:           link,
-		as:             myAS,
-		routerId:       routerId,
+		peerInfo: &peerInfo{
+			neighbor:  newNeighbor(addr, peerAS),
+			addr:      local,
+			link:      link,
+			as:        myAS,
+			routerId:  routerId,
+			timestamp: time.Now(),
+		},
 		locRib:         locRib,
-		rib:            rib,
+		rib:            adjRib,
 		holdTime:       DEFAULT_HOLD_TIME_INTERVAL,
 		capabilities:   defaultCaps(),
 		state:          IDLE,
@@ -274,7 +292,7 @@ func (p *peer) finishInitiate(conn *net.TCPConn) error {
 		return fmt.Errorf("finishInitiate: %w", ErrInvalidNeighborAddress)
 	}
 	if p.neighbor.port == 0 {
-		p.neighbor.port = rport
+		p.neighbor.SetPort(rport)
 	}
 	p.connRetryTimer.stop()
 	return nil
@@ -696,6 +714,7 @@ func (p *peer) recvOpenMsgEvent(evt event) error {
 		}
 		caps, _ := op.Capabilities() // ignore unsupported capability error
 		p.neighbor.capabilities = append(p.neighbor.capabilities, caps...)
+		p.neighbor.SetRouterId(op.Identifier)
 		// Process OPEN is ok
 		p.keepAliveTimer.start()
 		builder := Builder(KEEPALIVE)
@@ -827,6 +846,7 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 		next            net.IP
 		asPath          ASPath
 		origin          Origin
+		med             int
 		feasiblePathes  []*Path = make([]*Path, 0)
 		withdrawnPathes []*Path = make([]*Path, 0)
 	)
@@ -860,6 +880,8 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 		case NEXT_HOP:
 			nextHop := GetPathAttr[*NextHop](attr)
 			next = nextHop.next
+		case MULTI_EXIT_DISC:
+			med = int(GetPathAttr[*MultiExitDisc](attr).discriminator)
 		}
 	}
 	// If the UPDATE message contains a non-empty Withdrawn routes field,
@@ -887,7 +909,7 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 
 		// Otherwise, if the Adj-RIB-In has no route with NLRI identical to the new route,
 		// the new route shall be placed in the Adj-RIB-In.
-		path := newPath(p.neighbor.as, next, origin, asPath, feasibleRoute, recognizedAttrs, p.link)
+		path := newPath(p.peerInfo, p.neighbor.as, next, origin, asPath, med, feasibleRoute, recognizedAttrs, p.link)
 		feasiblePathes = append(feasiblePathes, path)
 		// p.rib.In.Insert(path)
 		adjRibInUpdate = true

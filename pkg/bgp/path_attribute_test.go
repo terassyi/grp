@@ -261,3 +261,45 @@ func TestASPath_Contains(t *testing.T) {
 		})
 	}
 }
+
+func TestGetFromPathAttrs(t *testing.T) {
+	tests := []struct {
+		name      string
+		attrs     []PathAttr
+		want      PathAttrType
+		expectNil bool
+	}{
+		{name: "EXIST 1", attrs: []PathAttr{&Origin{}}, want: ORIGIN},
+		{name: "EXIST 2", attrs: []PathAttr{&Origin{}, &ASPath{}, &MultiExitDisc{}}, want: MULTI_EXIT_DISC},
+		{name: "Not EXIST 1", attrs: []PathAttr{&Origin{}, &ASPath{}, &MultiExitDisc{}}, want: NEXT_HOP, expectNil: true},
+	}
+	t.Parallel()
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			switch tt.want {
+			case ORIGIN:
+				res := GetFromPathAttrs[*Origin](tt.attrs)
+				if tt.expectNil && res != nil {
+					t.Fatalf("expect nil, but got %s", res.typ.String())
+				} else {
+					assert.Equal(t, &Origin{}, res)
+				}
+			case AS_PATH:
+				res := GetFromPathAttrs[*ASPath](tt.attrs)
+				if tt.expectNil && res != nil {
+					t.Fatalf("expect nil, but got %s", res.typ.String())
+				} else {
+					assert.Equal(t, &ASPath{}, res)
+				}
+			case MULTI_EXIT_DISC:
+				res := GetFromPathAttrs[*MultiExitDisc](tt.attrs)
+				if tt.expectNil && res != nil {
+					t.Fatalf("expect nil, but got %s", res.typ.String())
+				} else {
+					assert.Equal(t, &MultiExitDisc{}, res)
+				}
+			}
+		})
+	}
+}

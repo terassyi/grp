@@ -14,7 +14,7 @@ func TestPeerHandleEvent(t *testing.T) {
 	logger, err := log.New(log.NoLog, "")
 	r := &LocRib{}
 	require.NoError(t, err)
-	p := newPeer(logger, nil, net.ParseIP("10.10.0.1"), net.ParseIP("10.0.0.2"), net.ParseIP("1.1.1.1"), 100, 200, r)
+	p := newPeer(logger, nil, net.ParseIP("10.10.0.1"), net.ParseIP("10.0.0.2"), net.ParseIP("1.1.1.1"), 100, 200, r, &AdjRib{})
 	for _, d := range []struct {
 		evt event
 	}{
@@ -41,13 +41,13 @@ func TestPeerChangeState(t *testing.T) {
 	}{
 		{
 			name:   "IDLE to ESTAB 1",
-			peer:   &peer{neighbor: neig, state: IDLE, logger: logger},
+			peer:   &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start, event_type_bgp_trans_conn_open, event_type_recv_open_msg, event_type_recv_keepalive_msg},
 			result: ESTABLISHED,
 		},
 		{
 			name: "IDLE to ESTAB 2",
-			peer: &peer{neighbor: neig, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,
@@ -57,7 +57,7 @@ func TestPeerChangeState(t *testing.T) {
 		},
 		{
 			name: "IDLE to ESTAB 3",
-			peer: &peer{neighbor: neig, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_start,
@@ -70,13 +70,13 @@ func TestPeerChangeState(t *testing.T) {
 		},
 		{
 			name:   "IDLE to IDLE 1",
-			peer:   &peer{neighbor: neig, state: IDLE, logger: logger},
+			peer:   &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start, event_type_bgp_stop},
 			result: IDLE,
 		},
 		{
 			name: "IDLE to IDLE 2",
-			peer: &peer{neighbor: neig, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open,
 				event_type_recv_keepalive_msg,
@@ -85,7 +85,7 @@ func TestPeerChangeState(t *testing.T) {
 		},
 		{
 			name: "IDLE to ESTAB 4",
-			peer: &peer{neighbor: neig, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,
@@ -100,7 +100,7 @@ func TestPeerChangeState(t *testing.T) {
 		},
 		{
 			name: "IDLE to ESTAB 5",
-			peer: &peer{neighbor: neig, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,
@@ -119,7 +119,7 @@ func TestPeerChangeState(t *testing.T) {
 		},
 		{
 			name: "IDLE to IDLE 3",
-			peer: &peer{neighbor: neig, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,

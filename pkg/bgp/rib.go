@@ -24,49 +24,10 @@ import (
 // Routes are stored in the Routing Information Bases(RIBs):
 // namely, the Adj-RIB-In, the Loc-RIB, and Adj-RIB-Out.
 
-type Path struct {
-	routes          []netlink.Route
-	as              int
-	nextHop         net.IP
-	origin          Origin
-	asPath          ASPath
-	nlri            *Prefix
-	recognizedAttrs []PathAttr
-	preference      int
-	picked          bool
-	link            netlink.Link
-	local           bool
-}
-
-func newPath(as int, nextHop net.IP, origin Origin, asPath ASPath, nlri *Prefix, attrs []PathAttr, link netlink.Link) *Path {
-	return &Path{
-		as:              as,
-		nextHop:         nextHop,
-		origin:          origin,
-		asPath:          asPath,
-		nlri:            nlri,
-		recognizedAttrs: attrs,
-		preference:      0,
-		picked:          false,
-		link:            link,
-	}
-}
-
-func (p *Path) String() string {
-	attrTypes := ""
-	for _, attr := range p.recognizedAttrs {
-		attrTypes += attr.Type().String() + ","
-	}
-	if len(p.recognizedAttrs) == 0 {
-		return fmt.Sprintf("AS=%d NEXT HOP=%s NLRI=%s ATTRIBUTES=None", p.as, p.nextHop, p.nlri)
-	}
-	return fmt.Sprintf("AS=%d NEXT HOP=%s NLRI=%s ATTRIBUTES=%s", p.as, p.nextHop, p.nlri, attrTypes[:len(attrTypes)-1])
-}
-
 // Routing Information Base
 type AdjRibIn struct {
 	mutex *sync.RWMutex
-	table map[string][]*Path
+	table map[string]map[int]*Path
 }
 
 func (r *AdjRibIn) Insert(path *Path) error {
@@ -74,9 +35,10 @@ func (r *AdjRibIn) Insert(path *Path) error {
 	defer r.mutex.Unlock()
 	_, ok := r.table[path.nlri.String()]
 	if !ok {
-		r.table[path.nlri.String()] = []*Path{path}
+		r.table[path.nlri.String()] = map[int]*Path{path.id: path}
 	} else {
-		r.table[path.nlri.String()] = append(r.table[path.nlri.String()], path)
+		// r.table[path.nlri.String()] = append(r.table[path.nlri.String()], path)
+		r.table[path.nlri.String()][path.id] = path
 	}
 	return nil
 }
@@ -86,22 +48,36 @@ func (r *AdjRibIn) Lookup(prefix *Prefix) []*Path {
 	defer r.mutex.RUnlock()
 	pathes, ok := r.table[prefix.String()]
 	if !ok {
-		return []*Path{}
+		return nil
 	}
-	return pathes
+	res := make([]*Path, 0)
+	for _, path := range pathes {
+		res = append(res, path)
+	}
+	return res
 }
 
-func (r *AdjRibIn) Drop(prefix *Prefix, next net.IP, asSequence []uint16) error {
+func (r *AdjRibIn) LookupById(id int) *Path {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	for _, network := range r.table {
+		path, ok := network[id]
+		if ok {
+			return path
+		}
+	}
+	return nil
+}
+
+func (r *AdjRibIn) Drop(prefix *Prefix, id int, next net.IP, asSequence []uint16) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	var (
-		deleted []*Path
-		key     string
-		target  int = -1
-	)
 	for k, v := range r.table {
 		if k == prefix.String() {
-			key = k
+			if id > 0 {
+				delete(r.table[prefix.String()], id)
+				return nil
+			}
 			for i, vv := range v {
 				var ases []uint16
 				for _, a := range vv.asPath.Segments {
@@ -110,16 +86,10 @@ func (r *AdjRibIn) Drop(prefix *Prefix, next net.IP, asSequence []uint16) error 
 					}
 				}
 				if vv.nextHop.Equal(next) && reflect.DeepEqual(ases, asSequence) {
-					target = i
+					delete(r.table[prefix.String()], i)
 				}
 			}
-			if target != -1 {
-				deleted = append(v[:target], v[target+1:]...)
-			}
 		}
-	}
-	if target != -1 {
-		r.table[key] = deleted
 	}
 	return nil
 }
@@ -153,21 +123,6 @@ func (r *AdjRibOut) Drop(prefix *Prefix) error {
 	return nil
 }
 
-func (r *AdjRibIn) Picked(prefix *Prefix) (*Path, bool) {
-	r.mutex.RLock()
-	defer r.mutex.RUnlock()
-	pathes, ok := r.table[prefix.String()]
-	if !ok {
-		return nil, false
-	}
-	for _, path := range pathes {
-		if path.picked {
-			return path, true
-		}
-	}
-	return nil, false
-}
-
 type AdjRib struct {
 	// Adj-RIB-In: The Adj-RIB-In store routing information that has been learned from inbound UPDATE messages.
 	// 	           Their contents represent routes that are available as an input to the Decision Process.
@@ -180,7 +135,7 @@ type AdjRib struct {
 
 func newAdjRib() (*AdjRib, error) {
 	return &AdjRib{
-		In:  &AdjRibIn{mutex: &sync.RWMutex{}, table: make(map[string][]*Path)},
+		In:  &AdjRibIn{mutex: &sync.RWMutex{}, table: make(map[string]map[int]*Path)},
 		Out: &AdjRibOut{mutex: &sync.RWMutex{}, table: make(map[string]*Path)},
 	}, nil
 }
@@ -231,9 +186,6 @@ func (l *LocRib) Insert(network string) error {
 }
 
 func (l *LocRib) InsertPath(path *Path) error {
-	if !path.picked {
-		return fmt.Errorf("LocRib_InsertPath: given path is not picked")
-	}
 	l.mutex.Lock()
 	l.table[path.nlri.String()] = path
 	l.mutex.Unlock()
@@ -313,10 +265,24 @@ func (p *peer) Decide(path *Path, withdrawn bool) error {
 //    If the route is learned from an external peer, then the local BGP speaker computes the degree of preference based on preconfigured policy information.
 //    If the return value indicates the route is ineligible, the route MAY NOT serve as an input to the next phase of route selection;
 //    otherwise, the return value MUST be used as the LOCAL_PREF value in any IBGP readvertisement.
-func (p *peer) Calculate(path *Path) error {
+// TODO: implement bestpath selection
+func (p *peer) Calculate(nlri *Prefix, bestPathConfig *BestPathConfig) (BestPathSelectionReason, *Path, error) {
+	pathes := p.rib.In.Lookup(nlri)
+	if pathes == nil {
+		return REASON_INVALID, nil, fmt.Errorf("Peer_Calculate: path is not found for %s", nlri)
+	}
 	p.rib.In.mutex.Lock()
 	defer p.rib.In.mutex.Unlock()
-	return nil
+	res, reason := sortPathes(pathes)
+	if len(res) == 0 {
+		return REASON_INVALID, nil, fmt.Errorf("Peer_Calculate: path is not found for %s", nlri)
+	}
+	// mark best
+	res[0].best = true
+	for i := 1; i < len(res); i++ {
+		res[i].best = false
+	}
+	return reason, res[0], nil
 }
 
 // Route Selection
@@ -359,30 +325,22 @@ func (p *peer) Select(path *Path) error {
 		p.logInfo("AS_PATH contains local AS number")
 		return nil
 	}
-
-	pickedPath, ok := p.rib.In.Picked(path.nlri)
-	if !ok {
-		path.picked = true
-		p.rib.In.Insert(path)
-		if err := p.locRib.InsertPath(path); err != nil {
-			return fmt.Errorf("Peer_Select: %w", err)
-		}
-		p.logInfo("Install into Loc-Rib: NLRI=%s NextHop=%s", path.nlri, path.nextHop)
-		return nil
-	}
-	if path.preference > pickedPath.preference {
-		path.picked = true
-		pickedPath.picked = false
-	}
+	// Insert into Adj-Rib-In
 	if err := p.rib.In.Insert(path); err != nil {
 		return fmt.Errorf("Peer_Select: %w", err)
 	}
 
-	if path.picked {
-		if err := p.locRib.InsertPath(path); err != nil {
-			return fmt.Errorf("Peer_Select :%w", err)
+	reason, bestPath, err := p.Calculate(path.nlri, p.bestPathConfig)
+	if err != nil {
+		return fmt.Errorf("Peer_Select: %w", err)
+	}
+	p.logInfo("Best path selected %s by reason %s", bestPath, reason)
+	p.rib.In.mutex.RLock()
+	defer p.rib.In.mutex.RUnlock()
+	if bestPath.id == path.id {
+		if err := p.locRib.InsertPath(bestPath); err != nil {
+			return fmt.Errorf("Peer_Select: %w", err)
 		}
-		p.logInfo("Replace Loc-Rib: NLRI=%s NextHop=%s", path.nlri, path.nextHop)
 	}
 	return nil
 }
