@@ -1,6 +1,7 @@
 package rib
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/vishvananda/netlink"
@@ -34,15 +35,19 @@ func LookUp4(link netlink.Link) ([]netlink.Route, error) {
 func Get4(link netlink.Link, addr net.IP) ([]netlink.Route, error) {
 	handler, err := netlink.NewHandle(netlink.FAMILY_V4)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("NewHandle: %w", err)
 	}
-	return handler.RouteGet(addr)
+	routes, err := handler.RouteGet(addr)
+	if err != nil {
+		return nil, fmt.Errorf("RouteGet(%s): %w", addr, err)
+	}
+	return routes, nil
 }
 
 func Add4(link netlink.Link, dst *net.IPNet, gateway net.IP, proto int) error {
 	handler, err := netlink.NewHandle(netlink.FAMILY_V4)
 	if err != nil {
-		return err
+		return fmt.Errorf("Add: NewHandle: %w", err)
 	}
 	target := &netlink.Route{
 		LinkIndex: link.Attrs().Index,
@@ -52,12 +57,15 @@ func Add4(link netlink.Link, dst *net.IPNet, gateway net.IP, proto int) error {
 	}
 	linkAddrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
 	if err != nil {
-		return err
+		return fmt.Errorf("Add: AddrList(%s): %w", link.Attrs().Name, err)
 	}
 	if dst.Contains(linkAddrs[0].IP) {
 		target.Scope = netlink.SCOPE_LINK
 	}
-	return handler.RouteAdd(target)
+	if err := handler.RouteAdd(target); err != nil {
+		return fmt.Errorf("Add: err=[%w] route=[%s]", err, target.String())
+	}
+	return nil
 }
 
 func Delete4(link netlink.Link, dst *net.IPNet, src net.IP, gateway net.IP) error {
@@ -85,10 +93,14 @@ func Replace4(link netlink.Link, dst *net.IPNet, gateway net.IP, proto int) erro
 	if err != nil {
 		return err
 	}
-	return handler.RouteReplace(&netlink.Route{
+	target := &netlink.Route{
 		LinkIndex: link.Attrs().Index,
 		Dst:       dst,
 		Gw:        gateway,
 		Protocol:  proto,
-	})
+	}
+	if err := handler.RouteReplace(target); err != nil {
+		return fmt.Errorf("Replace: err=[%w] route=[%s]", err, target.String())
+	}
+	return nil
 }
