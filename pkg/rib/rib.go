@@ -39,6 +39,9 @@ func Get4(link netlink.Link, addr net.IP) ([]netlink.Route, error) {
 	}
 	routes, err := handler.RouteGet(addr)
 	if err != nil {
+		if err.Error() == "network is unreachable" {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("RouteGet(%s): %w", addr, err)
 	}
 	return routes, nil

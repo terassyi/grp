@@ -771,10 +771,19 @@ func (p *peer) recvNotificationMsgEvent(evt event) error {
 func (p *peer) triggerDecisionProcessEvent(evt event) error {
 	arg := evt.(*triggerDecisionProcess)
 	withdrawn := arg.withdrawn
+	errs := []error{}
 	for _, path := range arg.pathes {
 		if err := p.Decide(path, withdrawn); err != nil {
-			return fmt.Errorf("triggerDecisionProcessEvent: %w", err)
+			errs = append(errs, err)
+			p.logErr("triggerDecisionProcessEvent: %s", err)
 		}
+	}
+	if len(errs) != 0 {
+		errMsg := ""
+		for _, e := range errs {
+			errMsg += e.Error() + ", "
+		}
+		return fmt.Errorf("%s", errMsg)
 	}
 	return nil
 }
