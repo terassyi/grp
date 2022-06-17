@@ -243,11 +243,12 @@ func (l *LocRib) IsReachable(addr net.IP) bool {
 // - selection of routes to be advertised to BGP speakers located in neighboring autonomous systems
 // - route aggregation and route information reduction
 func (p *peer) Decide(path *Path, withdrawn bool) error {
-	// Phase 1: Calculation of Degree of Preference
-
-	// Phase 2: Route selection
-
-	// Phase 3: Route Dissemination
+	if withdrawn {
+		return nil
+	}
+	if err := p.Select(path); err != nil {
+		return fmt.Errorf("Peer_Decide: %w", err)
+	}
 	return nil
 }
 
