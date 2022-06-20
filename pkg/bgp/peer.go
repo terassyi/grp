@@ -260,6 +260,8 @@ func (p *peer) handleEvent(ctx context.Context, evt event) error {
 		return p.recvNotificationMsgEvent(evt)
 	case event_type_trigger_decision_process:
 		return p.triggerDecisionProcessEvent(evt)
+	case event_type_trigger_dissemination:
+		return p.triggerDisseminationEvent(evt)
 	default:
 		return ErrInvalidEventType
 	}
@@ -785,6 +787,10 @@ func (p *peer) triggerDecisionProcessEvent(evt event) error {
 		}
 		return fmt.Errorf("%s", errMsg)
 	}
+	return nil
+}
+
+func (p *peer) triggerDisseminationEvent(evt event) error {
 	return nil
 }
 

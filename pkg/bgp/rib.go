@@ -363,6 +363,6 @@ func (p *peer) Select(path *Path) error {
 // Route aggregation and information reduction techniques may optionally be applied.
 //
 // When the updating of the Adj-RIB-Out and the Routing Table is complete, the local BGP speaker runs the update-Send process.
-func Disseminate() error {
+func (p *peer) Disseminate() error {
 	return nil
 }
