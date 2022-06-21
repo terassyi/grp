@@ -33,6 +33,7 @@ type AdjRibIn struct {
 func (r *AdjRibIn) Insert(path *Path) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
+	path.status = PathStatusInstalledIntoAdjRibIn
 	_, ok := r.table[path.nlri.String()]
 	if !ok {
 		r.table[path.nlri.String()] = map[int]*Path{path.id: path}
@@ -102,6 +103,7 @@ type AdjRibOut struct {
 func (r *AdjRibOut) Insert(path *Path) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
+	path.status = PathStatusInstalledIntoAdjRibOut
 	r.table[path.nlri.String()] = path
 	return nil
 }
@@ -120,6 +122,15 @@ func (r *AdjRibOut) Drop(prefix *Prefix) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	delete(r.table, prefix.String())
+	return nil
+}
+
+func (r *AdjRibOut) Sync(path *Path) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	_, ok := r.table[path.nlri.String()]
+	if !ok {
+	}
 	return nil
 }
 
@@ -194,6 +205,7 @@ func (l *LocRib) InsertPath(path *Path) error {
 		return fmt.Errorf("LocRib_InsertPath: %w", err)
 	}
 	path.routes = routes
+	path.status = PathStatusInstalledIntoLocRib
 	return nil
 }
 
@@ -224,6 +236,21 @@ func (l *LocRib) IsReachable(addr net.IP) bool {
 		}
 	}
 	return false
+}
+
+func (l *LocRib) GetNotSyncedPath(peerInfo *peerInfo) ([]*Path, error) {
+	l.mutex.Lock()
+	notSynced := make([]*Path, 0)
+	defer l.mutex.Unlock()
+	for _, path := range l.table {
+		if !path.info.Equal(peerInfo) {
+			continue
+		}
+		if path.status == PathStatusNotSynchronized || path.status == PathStatusInstalledIntoLocRib {
+			notSynced = append(notSynced, path)
+		}
+	}
+	return notSynced, nil
 }
 
 // The Decision Process selects routes for subsequent advertisement by applying the policies in the local Policy Information Base(PIB) to the routes stored in its Adj-RIB-In.
@@ -364,5 +391,8 @@ func (p *peer) Select(path *Path) error {
 //
 // When the updating of the Adj-RIB-Out and the Routing Table is complete, the local BGP speaker runs the update-Send process.
 func (p *peer) Disseminate() error {
+	// synchronize adj-rib-out with loc-rib
+	// create path attributes for each path
+	// call external update process
 	return nil
 }

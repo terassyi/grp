@@ -28,6 +28,7 @@ type Path struct {
 	best            bool
 	link            netlink.Link
 	local           bool
+	status          PathStatus
 	timestamp       time.Time
 }
 
@@ -48,6 +49,7 @@ func newPath(info *peerInfo, as int, nextHop net.IP, origin Origin, asPath ASPat
 		best:            false,
 		link:            link,
 		local:           false,
+		status:          PathStatusNotInstalled,
 		timestamp:       time.Now(),
 	}
 }
@@ -314,4 +316,34 @@ var compareFuncs []compareFunc = []compareFunc{
 	compareOlderRoute,
 	comparePeerRouterId,
 	comparePeerAddress,
+}
+
+type PathStatus uint8
+
+const (
+	PathStatusNotInstalled           PathStatus = iota
+	PathStatusInstalledIntoAdjRibIn  PathStatus = iota
+	PathStatusInstalledIntoLocRib    PathStatus = iota
+	PathStatusNotSynchronized        PathStatus = iota
+	PathStatusInstalledIntoAdjRibOut PathStatus = iota
+	PathStatusDisseminated           PathStatus = iota
+)
+
+func (p PathStatus) String() string {
+	switch p {
+	case PathStatusNotInstalled:
+		return "PathStatusNotInstalled"
+	case PathStatusInstalledIntoAdjRibIn:
+		return "PathStatusInstalledIntoAdjRibIn"
+	case PathStatusInstalledIntoLocRib:
+		return "PathStatusInstalledIntoLocRib"
+	case PathStatusNotSynchronized:
+		return "PathStatusNotSynchronized"
+	case PathStatusInstalledIntoAdjRibOut:
+		return "PathStatusInstalledIntoAdjRibOut"
+	case PathStatusDisseminated:
+		return "PathStatusDisseminated"
+	default:
+		return "Unknown"
+	}
 }

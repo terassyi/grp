@@ -29,3 +29,16 @@ func (n *neighbor) SetRouterId(id net.IP) {
 func (n *neighbor) SetPort(port int) {
 	n.port = port
 }
+
+func (n *neighbor) Equal(target *neighbor) bool {
+	if !n.addr.Equal(target.addr) || !n.routerId.Equal(target.routerId) {
+		return false
+	}
+	if n.port != target.port {
+		return false
+	}
+	if n.as != target.as {
+		return false
+	}
+	return true
+}

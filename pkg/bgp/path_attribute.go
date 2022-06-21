@@ -540,6 +540,22 @@ func (attr ASPath) GetSet() []uint16 {
 	return nil
 }
 
+func (attr ASPath) UpdateSequence(as uint16) {
+	for _, seg := range attr.Segments {
+		if seg.Type == SEG_TYPE_AS_SEQUENCE {
+			seg.UpdateSequence(as)
+		}
+	}
+}
+
+func (seg *ASPathSegment) UpdateSequence(as uint16) {
+	if seg.Type == SEG_TYPE_AS_SET {
+		return
+	}
+	seg.AS2 = append([]uint16{as}, seg.AS2...)
+	seg.Length++
+}
+
 // The NEXT_HOP is a well-known mandatory attribute that defines the IP address of the router that SHOULD be used as the next hop to the destinations listed in the UPDATE message.
 // The NEXT_HOP attribute is calculated as follows:
 //   1) When sending a message to an internal peer, if the route is not locally originated, the BGP speaker SHOULD NOT modify the NEXT_HOP attribute unless it has been explicitly configured

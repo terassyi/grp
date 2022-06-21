@@ -152,6 +152,25 @@ func (pi *peerInfo) isIBGP() bool {
 	return pi.as == pi.neighbor.as
 }
 
+func (pi *peerInfo) Equal(target *peerInfo) bool {
+	if !pi.neighbor.Equal(target.neighbor) {
+		return false
+	}
+	if pi.link.Attrs().Index != target.link.Attrs().Index {
+		return false
+	}
+	if !pi.addr.Equal(target.addr) || !pi.routerId.Equal(target.routerId) {
+		return false
+	}
+	if pi.port != target.port {
+		return false
+	}
+	if pi.as != target.as {
+		return false
+	}
+	return true
+}
+
 const (
 	DEFAULT_CONNECT_RETRY_TIME_INTERVAL time.Duration = 120 * time.Second
 	DEFAULT_KEEPALIVE_TIME_INTERVAL     time.Duration = 60 * time.Second

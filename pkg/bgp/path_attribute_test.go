@@ -303,3 +303,46 @@ func TestGetFromPathAttrs(t *testing.T) {
 		})
 	}
 }
+
+func TestASPathSegment_UpdateSequence(t *testing.T) {
+	tests := []struct {
+		name string
+		seg  *ASPathSegment
+		asn  uint16
+		want []uint16
+	}{
+		{
+			name: "200 100",
+			seg:  &ASPathSegment{Type: SEG_TYPE_AS_SEQUENCE, Length: 1, AS2: []uint16{100}},
+			asn:  200,
+			want: []uint16{200, 100},
+		},
+		{
+			name: "300 200 100",
+			seg:  &ASPathSegment{Type: SEG_TYPE_AS_SEQUENCE, Length: 2, AS2: []uint16{200, 100}},
+			asn:  300,
+			want: []uint16{300, 200, 100},
+		},
+		{
+			name: "100",
+			seg:  &ASPathSegment{Type: SEG_TYPE_AS_SEQUENCE, Length: 0, AS2: nil},
+			asn:  100,
+			want: []uint16{100},
+		},
+		{
+			name: "AS_SET",
+			seg:  &ASPathSegment{Type: SEG_TYPE_AS_SET, Length: 1, AS2: []uint16{100}},
+			asn:  200,
+			want: []uint16{100},
+		},
+	}
+	t.Parallel()
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			tt.seg.UpdateSequence(tt.asn)
+			assert.Equal(t, tt.want, tt.seg.AS2)
+			assert.Equal(t, len(tt.want), int(tt.seg.Length))
+		})
+	}
+}
