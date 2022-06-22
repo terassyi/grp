@@ -54,6 +54,28 @@ func newPath(info *peerInfo, as int, nextHop net.IP, origin Origin, asPath ASPat
 	}
 }
 
+func CreateLocalPath(network string, as int, nextHop net.IP) (*Path, error) {
+	_, cidr, err := net.ParseCIDR(network)
+	if err != nil {
+		return nil, err
+	}
+	path := &Path{
+		nlri:      PrefixFromIPNet(cidr),
+		as:        as,
+		origin:    *CreateOrigin(ORIGIN_IGP),
+		asPath:    *CreateASPath([]uint16{uint16(as)}),
+		nextHop:   nextHop,
+		local:     true,
+		med:       0,
+		localPref: 100,
+		reason:    REASON_NOT_COMPARED,
+		best:      false,
+		status:    PathStatusNotInstalled,
+		timestamp: time.Now(),
+	}
+	return path, nil
+}
+
 func (p *Path) String() string {
 	attrTypes := ""
 	for _, attr := range p.recognizedAttrs {
@@ -68,6 +90,9 @@ func (p *Path) String() string {
 }
 
 func (p *Path) GenerateOutPath() *Path {
+	if p.local {
+
+	}
 	return &Path{
 		id:              p.id,
 		info:            p.info,

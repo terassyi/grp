@@ -291,6 +291,17 @@ const (
 	ORIGIN_INCOMPLETE uint8 = iota
 )
 
+func CreateOrigin(origin uint8) *Origin {
+	return &Origin{
+		pathAttr: &pathAttr{
+			typ:   ORIGIN,
+			flags: PATH_ATTR_FLAG_TRANSITIVE,
+		},
+		length: 1,
+		value:  origin,
+	}
+}
+
 func newOrigin(buf *bytes.Buffer, base *pathAttr) (*Origin, error) {
 	attr := &Origin{pathAttr: base}
 	var err error
@@ -395,6 +406,23 @@ const (
 	SEG_TYPE_AS_SET      uint8 = 1
 	SEG_TYPE_AS_SEQUENCE uint8 = 2
 )
+
+func CreateASPath(ases []uint16) *ASPath {
+	return &ASPath{
+		pathAttr: &pathAttr{
+			typ:   AS_PATH,
+			flags: PATH_ATTR_FLAG_TRANSITIVE | PATH_ATTR_FLAG_EXTENDED,
+		},
+		length: 2 + 2*len(ases),
+		Segments: []*ASPathSegment{
+			{
+				Type:   SEG_TYPE_AS_SEQUENCE,
+				Length: uint8(len(ases)),
+				AS2:    ases,
+			},
+		},
+	}
+}
 
 func newASPath(buf *bytes.Buffer, base *pathAttr) (*ASPath, error) {
 	var err error
@@ -599,6 +627,17 @@ type NextHop struct {
 	*pathAttr
 	length uint8
 	next   net.IP
+}
+
+func CreateNextHop(next net.IP) *NextHop {
+	return &NextHop{
+		pathAttr: &pathAttr{
+			typ:   NEXT_HOP,
+			flags: PATH_ATTR_FLAG_TRANSITIVE,
+		},
+		length: 4,
+		next:   next,
+	}
 }
 
 func newNextHop(buf *bytes.Buffer, base *pathAttr) (*NextHop, error) {
@@ -822,6 +861,17 @@ type MultiExitDisc struct {
 	*pathAttr
 	length        uint8
 	discriminator uint32
+}
+
+func CreateMultiExitDisc(value uint32) *MultiExitDisc {
+	return &MultiExitDisc{
+		pathAttr: &pathAttr{
+			typ:   MULTI_EXIT_DISC,
+			flags: PATH_ATTR_FLAG_OPTIONAL,
+		},
+		length:        4,
+		discriminator: value,
+	}
 }
 
 func newMultiExitDisc(buf *bytes.Buffer, base *pathAttr) (*MultiExitDisc, error) {
