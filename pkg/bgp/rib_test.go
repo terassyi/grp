@@ -95,6 +95,144 @@ func TestLocRib_IsReachable(t *testing.T) {
 	}
 }
 
+func TestLocRib_GetNotSyncedPath(t *testing.T) {
+	loc, err := NewLocRib()
+	require.NoError(t, err)
+	eth0, err := netlink.LinkByName("eth0")
+	require.NoError(t, err)
+	eth1, err := netlink.LinkByName("eth1")
+	require.NoError(t, err)
+	pathMap := make(map[string]*Path)
+	pathMap["10.0.0.0/24"] = &Path{
+		id: 1,
+		info: &peerInfo{
+			neighbor: &neighbor{
+				addr:     net.ParseIP("10.0.0.3"),
+				port:     179,
+				routerId: net.ParseIP("2.2.2.2"),
+				as:       200,
+			},
+			link: eth0,
+			as:   100,
+		},
+		nextHop: net.ParseIP("10.0.0.3"),
+		nlri:    PrefixFromString("10.0.0.0/24"),
+		status:  PathStatusInstalledIntoLocRib,
+	}
+	pathMap["10.0.1.0/24"] = &Path{
+		id: 3,
+		info: &peerInfo{
+			neighbor: &neighbor{
+				addr:     net.ParseIP("10.0.0.3"),
+				port:     179,
+				routerId: net.ParseIP("2.2.2.2"),
+				as:       200,
+			},
+			link: eth0,
+			as:   100,
+		},
+		nextHop: net.ParseIP("10.0.0.3"),
+		nlri:    PrefixFromString("10.0.1.0/24"),
+		status:  PathStatusInstalledIntoLocRib,
+	}
+	pathMap["10.0.2.0/24"] = &Path{
+		id: 4,
+		info: &peerInfo{
+			neighbor: &neighbor{
+				addr:     net.ParseIP("10.0.0.3"),
+				port:     179,
+				routerId: net.ParseIP("2.2.2.2"),
+				as:       200,
+			},
+			link: eth0,
+			as:   100,
+		},
+		nextHop: net.ParseIP("10.0.0.3"),
+		nlri:    PrefixFromString("10.0.1.0/24"),
+		status:  PathStatusDisseminated,
+	}
+
+	pathMap["10.1.0.0/24"] = &Path{
+		id: 2,
+		info: &peerInfo{
+			neighbor: &neighbor{
+				addr:     net.ParseIP("10.0.1.4"),
+				port:     179,
+				routerId: net.ParseIP("4.4.4.4"),
+				as:       400,
+			},
+			link: eth1,
+			as:   100,
+		},
+		nextHop: net.ParseIP("10.0.1.4"),
+		nlri:    PrefixFromString("10.0.1.0/24"),
+		status:  PathStatusNotSynchronized,
+	}
+	pathMap["10.1.1.0/24"] = &Path{
+		id: 5,
+		info: &peerInfo{
+			neighbor: &neighbor{
+				addr:     net.ParseIP("10.0.1.4"),
+				port:     179,
+				routerId: net.ParseIP("4.4.4.4"),
+				as:       400,
+			},
+			link: eth1,
+			as:   100,
+		},
+		nextHop: net.ParseIP("10.0.1.4"),
+		nlri:    PrefixFromString("10.1.1.0/24"),
+		status:  PathStatusDisseminated,
+	}
+
+	for nlri, path := range pathMap {
+		loc.table[nlri] = path
+	}
+
+	tests := []struct {
+		name     string
+		peerInfo *peerInfo
+		want     []*Path
+	}{
+		{
+			name: "peer 10.0.0.3",
+			peerInfo: &peerInfo{
+				neighbor: &neighbor{
+					addr:     net.ParseIP("10.0.0.3"),
+					port:     179,
+					routerId: net.ParseIP("2.2.2.2"),
+					as:       200,
+				},
+				link: eth0,
+				as:   100,
+			},
+			want: []*Path{pathMap["10.0.0.0/24"], pathMap["10.0.1.0/24"]},
+		},
+		{
+			name: "peer 10.0.1.4",
+			peerInfo: &peerInfo{
+				neighbor: &neighbor{
+					addr:     net.ParseIP("10.0.1.4"),
+					port:     179,
+					routerId: net.ParseIP("4.4.4.4"),
+					as:       400,
+				},
+				link: eth1,
+				as:   100,
+			},
+			want: []*Path{pathMap["10.1.0.0/24"]},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			pathes, err := loc.GetNotSyncedPath(tt.peerInfo)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, pathes)
+		})
+	}
+}
+
 func TestAdjRibIn_Insert(t *testing.T) {
 	r := &AdjRibIn{mutex: &sync.RWMutex{}, table: make(map[string]map[int]*Path)}
 	tests := []struct {

@@ -392,6 +392,11 @@ func (p *peer) Select(path *Path) error {
 // When the updating of the Adj-RIB-Out and the Routing Table is complete, the local BGP speaker runs the update-Send process.
 func (p *peer) Disseminate() error {
 	// synchronize adj-rib-out with loc-rib
+	notSyncedPathes, err := p.locRib.GetNotSyncedPath(p.peerInfo)
+	if err != nil {
+		return fmt.Errorf("Peer_Disseminate: get unsynced: %w", err)
+	}
+	fmt.Println(notSyncedPathes)
 	// create path attributes for each path
 	// call external update process
 	return nil

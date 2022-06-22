@@ -67,6 +67,27 @@ func (p *Path) String() string {
 	return fmt.Sprintf("AS=%d NEXT HOP=%s NLRI=%s ATTRIBUTES=%s Best=%v ID=%d", p.as, p.nextHop, p.nlri, attrTypes, p.best, p.id)
 }
 
+func (p *Path) GenerateOutPath() *Path {
+	return &Path{
+		id:              p.id,
+		info:            p.info,
+		as:              p.as,
+		nextHop:         p.nextHop,
+		origin:          p.origin,
+		asPath:          p.asPath,
+		med:             p.med,
+		localPref:       p.localPref,
+		nlri:            p.nlri,
+		recognizedAttrs: p.recognizedAttrs,
+		reason:          p.reason,
+		best:            p.best,
+		link:            p.link,
+		local:           p.local,
+		status:          p.status,
+		timestamp:       p.timestamp,
+	}
+}
+
 type BestPathConfig struct {
 	mutex *sync.RWMutex
 }
