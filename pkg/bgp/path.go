@@ -91,7 +91,8 @@ func (p *Path) String() string {
 
 func (p *Path) GenerateOutPath() *Path {
 	if p.local {
-
+		newPath := p.DeepCopy()
+		return &newPath
 	}
 	return &Path{
 		id:              p.id,

@@ -243,6 +243,12 @@ func (l *LocRib) GetNotSyncedPath(peerInfo *peerInfo) ([]*Path, error) {
 	notSynced := make([]*Path, 0)
 	defer l.mutex.Unlock()
 	for _, path := range l.table {
+		if path.local {
+			if path.status == PathStatusNotSynchronized || path.status == PathStatusInstalledIntoLocRib {
+				notSynced = append(notSynced, path)
+			}
+			continue
+		}
 		if !path.info.Equal(peerInfo) {
 			continue
 		}
