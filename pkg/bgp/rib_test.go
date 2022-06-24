@@ -206,43 +206,18 @@ func TestLocRib_GetNotSyncedPath(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		peerInfo *peerInfo
-		want     []*Path
+		name string
+		want []*Path
 	}{
 		{
-			name: "peer 10.0.0.3",
-			peerInfo: &peerInfo{
-				neighbor: &neighbor{
-					addr:     net.ParseIP("10.0.0.3"),
-					port:     179,
-					routerId: net.ParseIP("2.2.2.2"),
-					as:       200,
-				},
-				link: eth0,
-				as:   100,
-			},
-			want: []*Path{pathMap["10.0.0.0/24"], pathMap["10.0.1.0/24"], pathMap["10.2.0.0/24"]},
-		},
-		{
-			name: "peer 10.0.1.4",
-			peerInfo: &peerInfo{
-				neighbor: &neighbor{
-					addr:     net.ParseIP("10.0.1.4"),
-					port:     179,
-					routerId: net.ParseIP("4.4.4.4"),
-					as:       400,
-				},
-				link: eth1,
-				as:   100,
-			},
-			want: []*Path{pathMap["10.1.0.0/24"], pathMap["10.2.0.0/24"]},
+			name: "case 1",
+			want: []*Path{pathMap["10.0.0.0/24"], pathMap["10.0.1.0/24"], pathMap["10.2.0.0/24"], pathMap["10.1.0.0/24"]},
 		},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			pathes, err := loc.GetNotSyncedPath(tt.peerInfo)
+			pathes, err := loc.GetNotSyncedPath()
 			require.NoError(t, err)
 			assert.Equal(t, len(tt.want), len(pathes))
 			// assert.Equal(t, tt.want, pathes)

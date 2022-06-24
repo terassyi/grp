@@ -238,20 +238,11 @@ func (l *LocRib) IsReachable(addr net.IP) bool {
 	return false
 }
 
-func (l *LocRib) GetNotSyncedPath(peerInfo *peerInfo) ([]*Path, error) {
+func (l *LocRib) GetNotSyncedPath() ([]*Path, error) {
 	l.mutex.Lock()
 	notSynced := make([]*Path, 0)
 	defer l.mutex.Unlock()
 	for _, path := range l.table {
-		if path.local {
-			if path.status == PathStatusNotSynchronized || path.status == PathStatusInstalledIntoLocRib {
-				notSynced = append(notSynced, path)
-			}
-			continue
-		}
-		if !path.info.Equal(peerInfo) {
-			continue
-		}
 		if path.status == PathStatusNotSynchronized || path.status == PathStatusInstalledIntoLocRib {
 			notSynced = append(notSynced, path)
 		}
@@ -398,7 +389,7 @@ func (p *peer) Select(path *Path) error {
 // When the updating of the Adj-RIB-Out and the Routing Table is complete, the local BGP speaker runs the update-Send process.
 func (p *peer) Disseminate() error {
 	// synchronize adj-rib-out with loc-rib
-	notSyncedPathes, err := p.locRib.GetNotSyncedPath(p.peerInfo)
+	notSyncedPathes, err := p.locRib.GetNotSyncedPath()
 	if err != nil {
 		return fmt.Errorf("Peer_Disseminate: get unsynced: %w", err)
 	}
