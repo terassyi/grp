@@ -14,7 +14,7 @@ func TestPeerHandleEvent(t *testing.T) {
 	logger, err := log.New(log.NoLog, "")
 	r := &LocRib{}
 	require.NoError(t, err)
-	p := newPeer(logger, nil, net.ParseIP("10.10.0.1"), net.ParseIP("10.0.0.2"), net.ParseIP("1.1.1.1"), 100, 200, r, &AdjRib{})
+	p := newPeer(logger, nil, net.ParseIP("10.10.0.1"), net.ParseIP("10.0.0.2"), net.ParseIP("1.1.1.1"), 100, 200, r, &AdjRibIn{})
 	for _, d := range []struct {
 		evt event
 	}{
@@ -147,6 +147,93 @@ func TestPeerChangeState(t *testing.T) {
 				require.NoError(t, err)
 			}
 			assert.Equal(t, tt.result, tt.peer.state)
+		})
+	}
+}
+
+func TestPeer_generateOutPath(t *testing.T) {
+	logger, _ := log.New(log.NoLog, "")
+	p := newPeer(logger, nil, net.ParseIP("10.0.0.2"), net.ParseIP("10.0.0.3"), net.ParseIP("1.1.1.1"), 100, 200, NewLocRib(), newAdjRibIn())
+	tests := []struct {
+		name         string
+		incomingPath *Path
+		outPath      *Path
+		wantErr      bool
+	}{
+		{
+			name: "LOCAL_PATH",
+			incomingPath: &Path{
+				id:    1,
+				info:  nil,
+				local: true,
+			},
+			outPath: &Path{
+				id:    1,
+				info:  p.peerInfo,
+				local: true,
+			},
+			wantErr: false,
+		},
+		{
+			name: "PEER_PATH",
+			incomingPath: &Path{
+				id:      2,
+				info:    p.peerInfo,
+				local:   false,
+				origin:  *CreateOrigin(ORIGIN_IGP),
+				as:      100,
+				asPath:  *CreateASPath([]uint16{200}),
+				nextHop: p.peerInfo.neighbor.addr,
+				nlri:    PrefixFromString("10.0.1.0/24"),
+			},
+			outPath: &Path{
+				id:      2,
+				info:    p.peerInfo,
+				local:   false,
+				origin:  *CreateOrigin(ORIGIN_IGP),
+				as:      100,
+				asPath:  *CreateASPath([]uint16{100, 200}),
+				nextHop: p.peerInfo.neighbor.addr,
+				nlri:    PrefixFromString("10.0.1.0/24"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "NOT_PEER_PATH",
+			incomingPath: &Path{
+				id:      3,
+				info:    p.peerInfo,
+				local:   false,
+				origin:  *CreateOrigin(ORIGIN_IGP),
+				as:      100,
+				asPath:  *CreateASPath([]uint16{200, 300}),
+				nextHop: net.ParseIP("10.0.0.3"),
+				nlri:    PrefixFromString("10.0.2.0/24"),
+			},
+			outPath: &Path{
+				id:      3,
+				info:    p.peerInfo,
+				local:   false,
+				origin:  *CreateOrigin(ORIGIN_IGP),
+				as:      100,
+				asPath:  *CreateASPath([]uint16{100, 200, 300}),
+				nextHop: p.peerInfo.neighbor.addr,
+				nlri:    PrefixFromString("10.0.2.0/24"),
+			},
+			wantErr: false,
+		},
+	}
+	t.Parallel()
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			outPath, err := p.generateOutPath(tt.incomingPath)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.outPath, outPath)
+			}
 		})
 	}
 }

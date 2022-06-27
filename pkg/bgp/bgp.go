@@ -31,7 +31,7 @@ type Bgp struct {
 	server       *server
 	peers        map[string]*peer // key: ipaddr string, value: peer struct pointer
 	locRib       *LocRib
-	adjRib       *AdjRib
+	adjRibIn     *AdjRibIn
 	networks     []*network
 	requestQueue chan *Request
 	logger       log.Logger
@@ -101,19 +101,11 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 	signal.Notify(sigCh,
 		syscall.SIGINT,
 		syscall.SIGTERM)
-	locRib, err := NewLocRib()
-	if err != nil {
-		return nil, err
-	}
-	adjRib, err := newAdjRib()
-	if err != nil {
-		return nil, err
-	}
 	return &Bgp{
 		port:         port,
 		peers:        make(map[string]*peer),
-		locRib:       locRib,
-		adjRib:       adjRib,
+		locRib:       NewLocRib(),
+		adjRibIn:     newAdjRibIn(),
 		logger:       logger,
 		requestQueue: make(chan *Request, 16),
 		networks:     make([]*network, 0),
@@ -199,6 +191,7 @@ func (b *Bgp) poll(ctx context.Context) error {
 			}
 		}
 	}()
+	go b.pollRib(ctx)
 	return nil
 }
 
@@ -255,7 +248,7 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 			return nil, err
 		}
 	}
-	p := newPeer(b.logger, link, local, addr, ri, myAS, peerAS, b.locRib, b.adjRib)
+	p := newPeer(b.logger, link, local, addr, ri, myAS, peerAS, b.locRib, b.adjRibIn)
 	if _, ok := b.peers[addr.String()]; ok && !force {
 		return nil, ErrPeerAlreadyRegistered
 	}
@@ -264,11 +257,21 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 	return p, nil
 }
 
-func (b *Bgp) listen() (net.Listener, error) {
-	tcpAddr := &net.TCPAddr{Port: b.port}
-	listener, err := net.ListenTCP("tcp", tcpAddr)
-	if err != nil {
-		return nil, nil
+func (b *Bgp) pollRib(ctx context.Context) {
+	b.logger.Infof("LocRib poll start")
+	for {
+		select {
+		case pathes := <-b.locRib.queue:
+			for _, path := range pathes {
+				if err := b.locRib.Insert(path); err != nil {
+					b.logger.Errorf("pollRib: ", err)
+				}
+			}
+			for _, peer := range b.peers {
+				peer.enqueueEvent(&triggerDissemination{pathes: pathes, withdrawn: false})
+			}
+		case <-ctx.Done():
+			return
+		}
 	}
-	return listener, nil
 }

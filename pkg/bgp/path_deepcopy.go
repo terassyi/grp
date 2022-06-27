@@ -116,9 +116,9 @@ func (o Path) DeepCopy() Path {
 			copy(cp.nlri.Prefix, o.nlri.Prefix)
 		}
 	}
-	if o.recognizedAttrs != nil {
-		cp.recognizedAttrs = make([]PathAttr, len(o.recognizedAttrs))
-		copy(cp.recognizedAttrs, o.recognizedAttrs)
+	if o.pathAttributes != nil {
+		cp.pathAttributes = make([]PathAttr, len(o.pathAttributes))
+		copy(cp.pathAttributes, o.pathAttributes)
 	}
 	return cp
 }

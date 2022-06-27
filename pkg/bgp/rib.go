@@ -30,6 +30,13 @@ type AdjRibIn struct {
 	table map[string]map[int]*Path
 }
 
+func newAdjRibIn() *AdjRibIn {
+	return &AdjRibIn{
+		mutex: &sync.RWMutex{},
+		table: make(map[string]map[int]*Path),
+	}
+}
+
 func (r *AdjRibIn) Insert(path *Path) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -156,13 +163,19 @@ func newAdjRib() (*AdjRib, error) {
 type LocRib struct {
 	mutex *sync.RWMutex
 	table map[string]*Path
+	queue chan []*Path
 }
 
-func NewLocRib() (*LocRib, error) {
+func NewLocRib() *LocRib {
 	return &LocRib{
 		mutex: &sync.RWMutex{},
 		table: make(map[string]*Path),
-	}, nil
+		queue: make(chan []*Path, 128),
+	}
+}
+
+func (l *LocRib) enqueue(pathes []*Path) {
+	l.queue <- pathes
 }
 
 func setupLocRib(family int) ([]netlink.Route, error) {
@@ -181,22 +194,7 @@ func setupLocRib(family int) ([]netlink.Route, error) {
 	return routes, nil
 }
 
-func (l *LocRib) Insert(network string) error {
-	addr, cidr, err := net.ParseCIDR(network)
-	if err != nil {
-		return fmt.Errorf("LocRib_Insert: %w", err)
-	}
-	routes, err := netlink.RouteGet(addr) // network must be reachable (route should be already exist)
-	if err != nil {
-		return fmt.Errorf("LocRib_Insert: %w", err)
-	}
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-	l.table[cidr.String()] = &Path{routes: routes, nlri: PrefixFromIPNet(cidr)}
-	return nil
-}
-
-func (l *LocRib) InsertPath(path *Path) error {
+func (l *LocRib) Insert(path *Path) error {
 	l.mutex.Lock()
 	l.table[path.nlri.String()] = path
 	l.mutex.Unlock()
@@ -266,15 +264,6 @@ func (l *LocRib) GetNotSyncedPath() ([]*Path, error) {
 // - selection of routes to be advertised to BGP speakers located in the local speaker's autonomous system
 // - selection of routes to be advertised to BGP speakers located in neighboring autonomous systems
 // - route aggregation and route information reduction
-func (p *peer) Decide(path *Path, withdrawn bool) error {
-	if withdrawn {
-		return nil
-	}
-	if err := p.Select(path); err != nil {
-		return fmt.Errorf("Peer_Decide: %w", err)
-	}
-	return nil
-}
 
 // Calculation of Degree of Preference
 // This decision function is invoked whenever the local BGP speaker receives, from a peer,
@@ -341,33 +330,32 @@ func (p *peer) Calculate(nlri *Prefix, bestPathConfig *BestPathConfig) (BestPath
 // Notice that even though BGP routes do not have to be installed in the Routing Table with the immediate next-hos(s),
 // implementations MUST take care that, before any packets are forwarded along a BGP route,
 // its associated NEXT_HOP address is resolved to the immediate (directly connected) next-hop address, and that this address (or multiple addresses) is finally used for actual packet forwarding.
-func (p *peer) Select(path *Path) error {
+func (p *peer) Select(path *Path, withdrawn bool) (*Path, error) {
 	if path.asPath.CheckLoop() {
-		return fmt.Errorf("Peer_Select: detect AS loop")
+		return nil, fmt.Errorf("Peer_Select: detect AS loop")
 	}
 	if path.asPath.Contains(p.as) {
 		// return fmt.Errorf("Select: AS Path contains local AS number")
 		p.logInfo("AS_PATH contains local AS number")
-		return nil
+		return nil, nil
 	}
 	// Insert into Adj-Rib-In
 	if err := p.rib.In.Insert(path); err != nil {
-		return fmt.Errorf("Peer_Select: %w", err)
+		return nil, fmt.Errorf("Peer_Select: %w", err)
 	}
 
 	reason, bestPath, err := p.Calculate(path.nlri, p.bestPathConfig)
 	if err != nil {
-		return fmt.Errorf("Peer_Select: %w", err)
+		return nil, fmt.Errorf("Peer_Select: %w", err)
 	}
-	p.logInfo("Best path selected %s by reason %s", bestPath, reason)
 	p.rib.In.mutex.RLock()
 	defer p.rib.In.mutex.RUnlock()
-	if bestPath.id == path.id {
-		if err := p.locRib.InsertPath(bestPath); err != nil {
-			return fmt.Errorf("Peer_Select: %w", err)
-		}
+	if bestPath.id != path.id {
+		return nil, nil
 	}
-	return nil
+	p.logInfo("Best path selected %s by reason %s", bestPath, reason)
+	bp := bestPath.DeepCopy()
+	return &bp, nil
 }
 
 // Route Dissemination
@@ -387,14 +375,27 @@ func (p *peer) Select(path *Path) error {
 // Route aggregation and information reduction techniques may optionally be applied.
 //
 // When the updating of the Adj-RIB-Out and the Routing Table is complete, the local BGP speaker runs the update-Send process.
-func (p *peer) Disseminate() error {
+func (p *peer) Disseminate(pathes []*Path, withdrawn bool) error {
 	// synchronize adj-rib-out with loc-rib
-	notSyncedPathes, err := p.locRib.GetNotSyncedPath()
-	if err != nil {
-		return fmt.Errorf("Peer_Disseminate: get unsynced: %w", err)
-	}
-	fmt.Println(notSyncedPathes)
 	// create path attributes for each path
 	// call external update process
+	filteredPathes := make([]*Path, 0, len(pathes))
+	for _, path := range pathes {
+		// no filter
+		filteredPathes = append(filteredPathes, path)
+	}
+	for _, path := range filteredPathes {
+		outPath, err := p.generateOutPath(path)
+		if err != nil {
+			return fmt.Errorf("Dissemintate: gnerate outgoing path: %w", err)
+		}
+		if err := p.rib.Out.Insert(outPath); err != nil {
+			return fmt.Errorf("Disseminate: %w", err)
+		}
+	}
+	_, err := p.buildUpdateMessage(filteredPathes)
+	if err != nil {
+		return fmt.Errorf("Disseminate: %w", err)
+	}
 	return nil
 }

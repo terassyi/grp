@@ -346,3 +346,101 @@ func TestASPathSegment_UpdateSequence(t *testing.T) {
 		})
 	}
 }
+
+func TestASPath_Equal(t *testing.T) {
+	tests := []struct {
+		name   string
+		asPath *ASPath
+		target *ASPath
+		res    bool
+	}{
+		{
+			name:   "Only Sequence Equal",
+			asPath: CreateASPath([]uint16{100, 200, 300}),
+			target: CreateASPath([]uint16{100, 200, 300}),
+			res:    true,
+		},
+		{
+			name:   "Only Sequence Not Equal",
+			asPath: CreateASPath([]uint16{100, 200, 300}),
+			target: CreateASPath([]uint16{100, 400, 300}),
+			res:    false,
+		},
+		{
+			name: "Set and Sequence Equal",
+			asPath: &ASPath{
+				pathAttr: &pathAttr{typ: AS_PATH, flags: PATH_ATTR_FLAG_EXTENDED},
+				Segments: []*ASPathSegment{
+					{
+						Type: SEG_TYPE_AS_SEQUENCE,
+						Length: 4,
+						AS2:  []uint16{100, 200, 300, 400},
+					},
+					{
+						Type: SEG_TYPE_AS_SET,
+						Length: 2,
+						AS2:  []uint16{500, 600},
+					},
+				},
+			},
+			target: &ASPath{
+				pathAttr: &pathAttr{typ: AS_PATH, flags: PATH_ATTR_FLAG_EXTENDED},
+				Segments: []*ASPathSegment{
+					{
+						Type: SEG_TYPE_AS_SEQUENCE,
+						Length: 4,
+						AS2:  []uint16{100, 200, 300, 400},
+					},
+					{
+						Type: SEG_TYPE_AS_SET,
+						Length: 2,
+						AS2:  []uint16{500, 600},
+					},
+				},
+			},
+			res: true,
+		},
+		{
+			name: "Set and Sequence Not Equal",
+			asPath: &ASPath{
+				pathAttr: &pathAttr{typ: AS_PATH, flags: PATH_ATTR_FLAG_EXTENDED},
+				Segments: []*ASPathSegment{
+					{
+						Type: SEG_TYPE_AS_SEQUENCE,
+						Length: 4,
+						AS2:  []uint16{100, 200, 300, 400},
+					},
+					{
+						Type: SEG_TYPE_AS_SET,
+						Length: 2,
+						AS2:  []uint16{500, 800},
+					},
+				},
+			},
+			target: &ASPath{
+				pathAttr: &pathAttr{typ: AS_PATH, flags: PATH_ATTR_FLAG_EXTENDED},
+				Segments: []*ASPathSegment{
+					{
+						Type: SEG_TYPE_AS_SEQUENCE,
+						Length: 4,
+						AS2:  []uint16{100, 200, 300, 400},
+					},
+					{
+						Type: SEG_TYPE_AS_SET,
+						Length: 2,
+						AS2:  []uint16{500, 600},
+					},
+				},
+			},
+			res: false,
+		},
+	}
+	t.Parallel()
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			res := tt.asPath.Equal(tt.target)
+			assert.Equal(t, tt.res, res)
+		})
+	}
+}

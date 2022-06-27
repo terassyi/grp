@@ -21,6 +21,7 @@ type PathAttr interface {
 	IsOptional() bool
 	IsRecognized() bool
 	SetPartial()
+	Equal(PathAttr) bool
 	Decode() ([]byte, error)
 }
 
@@ -107,7 +108,11 @@ func parsePathAttr(buf *bytes.Buffer) (PathAttr, error) {
 	return attr, nil
 }
 
-func GetPathAttr[T *ASPath | *NextHop | *Origin | *MultiExitDisc](attr PathAttr) T {
+type RecognizedPathAttr interface {
+	*ASPath | *NextHop | *Origin | *MultiExitDisc | *LocalPref | *UnimplementedPathAttr
+}
+
+func GetPathAttr[T RecognizedPathAttr](attr PathAttr) T {
 	return attr.(T)
 }
 
@@ -253,6 +258,17 @@ func (attr *UnimplementedPathAttr) IsRecognized() bool {
 	return false
 }
 
+func (attr *UnimplementedPathAttr) Equal(target PathAttr) bool {
+	if attr.Type() != target.Type() {
+		return false
+	}
+	if attr.Flags() != target.Flags() {
+		return false
+	}
+	unimpl := GetPathAttr[*UnimplementedPathAttr](target)
+	return bytes.Equal(attr.data, unimpl.data)
+}
+
 func (attr *UnimplementedPathAttr) Decode() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, len(attr.data)))
 	if err := binary.Write(buf, binary.BigEndian, attr.pathAttr); err != nil {
@@ -346,6 +362,16 @@ func (attr *Origin) ValueLen() int {
 
 func (attr *Origin) IsRecognized() bool {
 	return true
+}
+
+func (attr *Origin) Equal(target PathAttr) bool {
+	if attr.Type() != target.Type() {
+		return false
+	}
+	if attr.Flags() != target.Flags() {
+		return false
+	}
+	return attr.value == GetPathAttr[*Origin](target).value
 }
 
 func (attr *Origin) Decode() ([]byte, error) {
@@ -472,6 +498,31 @@ func (attr *ASPath) Flags() uint8 {
 	return attr.flags
 }
 
+func (attr *ASPath) Equal(target PathAttr) bool {
+	if attr.Type() != target.Type() {
+		return false
+	}
+	if attr.Flags() != target.Flags() {
+		return false
+	}
+	asPath := GetPathAttr[*ASPath](target)
+	asSet, asSeq := true, true
+	for _, seg := range attr.Segments {
+		for i := 0; i < len(asPath.Segments); i++ {
+			if seg.Type != asPath.Segments[i].Type {
+				continue
+			}
+			switch seg.Type {
+			case SEG_TYPE_AS_SEQUENCE:
+				asSeq = seg.equal(asPath.Segments[i])
+			case SEG_TYPE_AS_SET:
+				asSet = seg.equal(asPath.Segments[i])
+			}
+		}
+	}
+	return asSet && asSeq
+}
+
 func (attr *ASPath) String() string {
 	base := attr.pathAttr.String()
 	base += "\n"
@@ -519,7 +570,7 @@ func (attr *ASPath) Decode() ([]byte, error) {
 }
 
 // if detect loop, return true, otherwise return false
-func (attr ASPath) CheckLoop() bool {
+func (attr *ASPath) CheckLoop() bool {
 	dup := make(map[uint16]struct{})
 	for _, seg := range attr.Segments {
 		for _, a := range seg.AS2 {
@@ -539,7 +590,7 @@ func (attr ASPath) CheckLoop() bool {
 }
 
 // if ASPath contains as number given as argument, return true, otherwise return false
-func (attr ASPath) Contains(as int) bool {
+func (attr *ASPath) Contains(as int) bool {
 	for _, seg := range attr.Segments {
 		for _, a := range seg.AS2 {
 			if int(a) == as {
@@ -550,7 +601,7 @@ func (attr ASPath) Contains(as int) bool {
 	return false
 }
 
-func (attr ASPath) GetSequence() []uint16 {
+func (attr *ASPath) GetSequence() []uint16 {
 	for _, seg := range attr.Segments {
 		if seg.Type == SEG_TYPE_AS_SEQUENCE {
 			return seg.AS2
@@ -559,7 +610,7 @@ func (attr ASPath) GetSequence() []uint16 {
 	return nil
 }
 
-func (attr ASPath) GetSet() []uint16 {
+func (attr *ASPath) GetSet() []uint16 {
 	for _, seg := range attr.Segments {
 		if seg.Type == SEG_TYPE_AS_SET {
 			return seg.AS2
@@ -568,7 +619,8 @@ func (attr ASPath) GetSet() []uint16 {
 	return nil
 }
 
-func (attr ASPath) UpdateSequence(as uint16) {
+func (attr *ASPath) UpdateSequence(as uint16) {
+	attr.length += 2
 	for _, seg := range attr.Segments {
 		if seg.Type == SEG_TYPE_AS_SEQUENCE {
 			seg.UpdateSequence(as)
@@ -582,6 +634,21 @@ func (seg *ASPathSegment) UpdateSequence(as uint16) {
 	}
 	seg.AS2 = append([]uint16{as}, seg.AS2...)
 	seg.Length++
+}
+
+func (seg *ASPathSegment) equal(target *ASPathSegment) bool {
+	if seg.Type != target.Type {
+		return false
+	}
+	if seg.Length != target.Length {
+		return false
+	}
+	for i := 0; i < int(seg.Length); i++ {
+		if seg.AS2[i] != target.AS2[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // The NEXT_HOP is a well-known mandatory attribute that defines the IP address of the router that SHOULD be used as the next hop to the destinations listed in the UPDATE message.
@@ -678,6 +745,16 @@ func (attr *NextHop) IsRecognized() bool {
 	return true
 }
 
+func (attr *NextHop) Equal(target PathAttr) bool {
+	if attr.Type() != target.Type() {
+		return false
+	}
+	if attr.Flags() != target.Flags() {
+		return false
+	}
+	return attr.next.Equal(GetPathAttr[*NextHop](target).next)
+}
+
 func (attr *NextHop) Decode() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, attr.length))
 	if err := binary.Write(buf, binary.BigEndian, attr.pathAttr); err != nil {
@@ -734,6 +811,16 @@ func (attr *LocalPref) IsRecognized() bool {
 	return false
 }
 
+func (attr *LocalPref) Equal(target PathAttr) bool {
+	if attr.Type() != target.Type() {
+		return false
+	}
+	if attr.Flags() != target.Flags() {
+		return false
+	}
+	return attr.value == GetPathAttr[*LocalPref](target).value
+}
+
 func (attr *LocalPref) Decode() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, attr.length))
 	if err := binary.Write(buf, binary.BigEndian, attr.pathAttr); err != nil {
@@ -779,6 +866,16 @@ func (attr *AtomicAggregate) String() string {
 
 func (attr *AtomicAggregate) IsRecognized() bool {
 	return false
+}
+
+func (attr *AtomicAggregate) Equal(target PathAttr) bool {
+	if attr.Type() != target.Type() {
+		return false
+	}
+	if attr.Flags() != target.Flags() {
+		return false
+	}
+	return true
 }
 
 func (attr *AtomicAggregate) Decode() ([]byte, error) {
@@ -838,6 +935,17 @@ func (attr *Aggregator) String() string {
 
 func (attr *Aggregator) IsRecognized() bool {
 	return false
+}
+
+func (attr *Aggregator) Equal(target PathAttr) bool {
+	if attr.Type() != target.Type() {
+		return false
+	}
+	if attr.Flags() != target.Flags() {
+		return false
+	}
+	// TODO: implement
+	return true
 }
 
 func (attr *Aggregator) Decode() ([]byte, error) {
@@ -910,6 +1018,16 @@ func (attr *MultiExitDisc) IsRecognized() bool {
 	return true
 }
 
+func (attr *MultiExitDisc) Equal(target PathAttr) bool {
+	if attr.Type() != target.Type() {
+		return false
+	}
+	if attr.Flags() != target.Flags() {
+		return false
+	}
+	return attr.discriminator == GetPathAttr[*MultiExitDisc](target).discriminator
+}
+
 func (attr *MultiExitDisc) Decode() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, attr.length))
 	if err := binary.Write(buf, binary.BigEndian, attr.pathAttr); err != nil {
@@ -966,6 +1084,17 @@ func (attr *Commutities) IsRecognized() bool {
 	return false
 }
 
+func (attr *Commutities) Equal(target PathAttr) bool {
+	if attr.Type() != target.Type() {
+		return false
+	}
+	if attr.Flags() != target.Flags() {
+		return false
+	}
+	// TODO: implement
+	return true
+}
+
 func (attr *Commutities) Decode() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, attr.length))
 	if err := binary.Write(buf, binary.BigEndian, attr.pathAttr); err != nil {
@@ -1020,6 +1149,17 @@ func (attr *ExtendedCommutities) String() string {
 
 func (attr *ExtendedCommutities) IsRecognized() bool {
 	return false
+}
+
+func (attr *ExtendedCommutities) Equal(target PathAttr) bool {
+	if attr.Type() != target.Type() {
+		return false
+	}
+	if attr.Flags() != target.Flags() {
+		return false
+	}
+	// TODO: implement
+	return true
 }
 
 func (attr *ExtendedCommutities) Decode() ([]byte, error) {
