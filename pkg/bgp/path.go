@@ -13,44 +13,44 @@ import (
 )
 
 type Path struct {
-	id              int
-	info            *peerInfo
-	routes          []netlink.Route
-	as              int
-	nextHop         net.IP
-	origin          Origin
-	asPath          ASPath
-	med             int
-	localPref       int
-	nlri            *Prefix
-	recognizedAttrs []PathAttr
-	reason          BestPathSelectionReason
-	best            bool
-	link            netlink.Link
-	local           bool
-	status          PathStatus
-	timestamp       time.Time
+	id             int
+	info           *peerInfo
+	routes         []netlink.Route
+	as             int
+	nextHop        net.IP
+	origin         Origin
+	asPath         ASPath
+	med            int
+	localPref      int
+	nlri           *Prefix
+	pathAttributes []PathAttr
+	reason         BestPathSelectionReason
+	best           bool
+	link           netlink.Link
+	local          bool
+	status         PathStatus
+	timestamp      time.Time
 }
 
-func newPath(info *peerInfo, as int, nextHop net.IP, origin Origin, asPath ASPath, med int, nlri *Prefix, attrs []PathAttr, link netlink.Link) *Path {
+func newPath(info *peerInfo, as int, nextHop net.IP, origin Origin, asPath ASPath, med, localPref int, nlri *Prefix, attrs []PathAttr, link netlink.Link) *Path {
 	rand.Seed(time.Now().UnixNano())
 	return &Path{
-		id:              rand.Int(),
-		info:            info,
-		as:              as,
-		nextHop:         nextHop,
-		origin:          origin,
-		asPath:          asPath,
-		med:             med,
-		localPref:       100,
-		nlri:            nlri,
-		recognizedAttrs: attrs,
-		reason:          REASON_NOT_COMPARED,
-		best:            false,
-		link:            link,
-		local:           false,
-		status:          PathStatusNotInstalled,
-		timestamp:       time.Now(),
+		id:             rand.Int(),
+		info:           info,
+		as:             as,
+		nextHop:        nextHop,
+		origin:         origin,
+		asPath:         asPath,
+		med:            med,
+		localPref:      localPref,
+		nlri:           nlri,
+		pathAttributes: attrs,
+		reason:         REASON_NOT_COMPARED,
+		best:           false,
+		link:           link,
+		local:          false,
+		status:         PathStatusNotInstalled,
+		timestamp:      time.Now(),
 	}
 }
 
@@ -76,9 +76,19 @@ func CreateLocalPath(network string, as int, nextHop net.IP) (*Path, error) {
 	return path, nil
 }
 
+func (p *Path) GetPathAttrs() []PathAttr {
+	attrs := make([]PathAttr, 0, 3)
+	attrs = append(attrs, &p.origin)
+	attrs = append(attrs, &p.asPath)
+	attrs = append(attrs, CreateNextHop(p.nextHop))
+	attrs = append(attrs, CreateMultiExitDisc(uint32(p.med)))
+	attrs = append(attrs, p.pathAttributes...)
+	return attrs
+}
+
 func (p *Path) String() string {
 	attrTypes := ""
-	for _, attr := range p.recognizedAttrs {
+	for _, attr := range p.pathAttributes {
 		attrTypes += attr.Type().String() + ","
 	}
 	if attrTypes == "" {
@@ -87,31 +97,6 @@ func (p *Path) String() string {
 		attrTypes = attrTypes[:len(attrTypes)-1]
 	}
 	return fmt.Sprintf("AS=%d NEXT HOP=%s NLRI=%s ATTRIBUTES=%s Best=%v ID=%d", p.as, p.nextHop, p.nlri, attrTypes, p.best, p.id)
-}
-
-func (p *Path) GenerateOutPath() *Path {
-	if p.local {
-		newPath := p.DeepCopy()
-		return &newPath
-	}
-	return &Path{
-		id:              p.id,
-		info:            p.info,
-		as:              p.as,
-		nextHop:         p.nextHop,
-		origin:          p.origin,
-		asPath:          p.asPath,
-		med:             p.med,
-		localPref:       p.localPref,
-		nlri:            p.nlri,
-		recognizedAttrs: p.recognizedAttrs,
-		reason:          p.reason,
-		best:            p.best,
-		link:            p.link,
-		local:           p.local,
-		status:          p.status,
-		timestamp:       p.timestamp,
-	}
 }
 
 type BestPathConfig struct {
@@ -280,8 +265,8 @@ func compareOrigin(p1, p2 *Path) *Path {
 }
 
 func compareMed(p1, p2 *Path) *Path {
-	med1 := GetFromPathAttrs[*MultiExitDisc](p1.recognizedAttrs)
-	med2 := GetFromPathAttrs[*MultiExitDisc](p2.recognizedAttrs)
+	med1 := GetFromPathAttrs[*MultiExitDisc](p1.pathAttributes)
+	med2 := GetFromPathAttrs[*MultiExitDisc](p2.pathAttributes)
 	if med1 == nil || med2 == nil {
 		return nil
 	}
@@ -393,4 +378,25 @@ func (p PathStatus) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+func comparePath(p1, p2 *Path) (bool, error) {
+	if !p1.asPath.Equal(&p2.asPath) {
+		return false, fmt.Errorf("buildUpdateMessage: cannot unite: AS_PATH")
+	}
+	if !p1.origin.Equal(&p2.origin) {
+		return false, fmt.Errorf("buildUpdateMessage: cannot unite: ORIGIN")
+	}
+	if !p1.nextHop.Equal(p2.nextHop) {
+		return false, fmt.Errorf("buildUpdateMessage: cannot unite: NEXT_HOP")
+	}
+	if len(p1.pathAttributes) != len(p2.pathAttributes) {
+		return false, fmt.Errorf("buildUpdateMessage: cannot unite: different propagated path attribute length")
+	}
+	for j := 0; j < len(p1.pathAttributes); j++ {
+		if !p1.pathAttributes[j].Equal(p2.pathAttributes[j]) {
+			return false, fmt.Errorf("buildUpdateMessage: cannot unite: %s", p1.pathAttributes[j].Type())
+		}
+	}
+	return true, nil
 }

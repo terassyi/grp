@@ -118,7 +118,10 @@ type triggerDecisionProcess struct {
 	withdrawn bool
 }
 
-type triggerDissemination struct{}
+type triggerDissemination struct {
+	pathes    []*Path
+	withdrawn bool
+}
 
 func (*bgpStart) typ() eventType {
 	return event_type_bgp_start

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/terassyi/grp/pkg/log"
@@ -177,7 +178,8 @@ const (
 	DEFAULT_HOLD_TIME_INTERVAL          time.Duration = 180 * time.Second
 )
 
-func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib, adjRib *AdjRib) *peer {
+func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib, adjRibIn *AdjRibIn) *peer {
+	adjRib := &AdjRib{In: adjRibIn, Out: &AdjRibOut{mutex: &sync.RWMutex{}, table: make(map[string]*Path)}}
 	return &peer{
 		peerInfo: &peerInfo{
 			neighbor:  newNeighbor(addr, peerAS),
@@ -790,27 +792,35 @@ func (p *peer) recvNotificationMsgEvent(evt event) error {
 }
 
 func (p *peer) triggerDecisionProcessEvent(evt event) error {
-	arg := evt.(*triggerDecisionProcess)
-	withdrawn := arg.withdrawn
+	de := evt.(*triggerDecisionProcess)
 	errs := []error{}
-	for _, path := range arg.pathes {
-		if err := p.Decide(path, withdrawn); err != nil {
+	updatedPathes := make([]*Path, 0, len(de.pathes))
+	for _, path := range de.pathes {
+		selected, err := p.Select(path, de.withdrawn)
+		if err != nil {
 			errs = append(errs, err)
-			p.logErr("triggerDecisionProcessEvent: %s", err)
+			continue
 		}
+		if selected == nil {
+			continue
+		}
+		updatedPathes = append(updatedPathes, selected)
 	}
 	if len(errs) != 0 {
 		errMsg := ""
 		for _, e := range errs {
 			errMsg += e.Error() + ", "
 		}
-		return fmt.Errorf("%s", errMsg)
+		return fmt.Errorf("Decision process: %s", errMsg)
 	}
+	p.locRib.enqueue(updatedPathes)
 	return nil
 }
 
 func (p *peer) triggerDisseminationEvent(evt event) error {
-	return nil
+	de := evt.(*triggerDissemination)
+	p.logInfo("dissemination start")
+	return p.Disseminate(de.pathes, de.withdrawn)
 }
 
 // initialize resources
@@ -875,35 +885,39 @@ func (t *timer) tick() *time.Ticker {
 // https://datatracker.ietf.org/doc/html/rfc4271#section-9
 func (p *peer) handleUpdateMsg(msg *Update) error {
 	propagateAttrs := make([]PathAttr, 0)
-	recognizedAttrs := make([]PathAttr, 0)
 	var (
 		next            net.IP
 		asPath          ASPath
 		origin          Origin
-		med             int
 		feasiblePathes  []*Path = make([]*Path, 0)
 		withdrawnPathes []*Path = make([]*Path, 0)
 	)
+	med := 0
+	localPref := 100
 	for _, attr := range msg.PathAttrs {
 		if attr.IsRecognized() {
-			recognizedAttrs = append(recognizedAttrs, attr)
-		}
-		// If an optional non-transitive attribute is unrecognized, it is quietly ignored.
-		if attr.IsOptional() && !attr.IsTransitive() {
-			continue
-		}
-		// If an optional transitive attribute is unrecognized, the Partial bit in the attribute flags is set to 1,
-		// and the attribute is retained for propagation to other BGP speakers.
-		if attr.IsOptional() && attr.IsTransitive() && !attr.IsRecognized() {
-			attr.SetPartial()
-			propagateAttrs = append(propagateAttrs, attr)
-		}
+			if attr.IsOptional() {
+				// handle attributes
 
-		// If an optional attribute is recognized, and has a valid value,
-		// then, depending on the type of the optional attruibute, it is processed locally, ratained, and updated,
-		// if necessary, for possible propagation to other BGP speakers.
-		if attr.IsOptional() && attr.IsRecognized() {
-			// handle attribute
+				// If an optional attribute is recognized, and has a valid value,
+				// then, depending on the type of the optional attruibute, it is processed locally, ratained, and updated,
+				// if necessary, for possible propagation to other BGP speakers.
+				if attr.IsTransitive() {
+					propagateAttrs = append(propagateAttrs, attr)
+				}
+			}
+		} else {
+			if attr.IsOptional() {
+				if attr.IsTransitive() {
+					// If an optional transitive attribute is unrecognized, the Partial bit in the attribute flags is set to 1,
+					// and the attribute is retained for propagation to other BGP speakers.
+					attr.SetPartial()
+					propagateAttrs = append(propagateAttrs, attr)
+				} else {
+					// If an optional non-transitive attribute is unrecognized, it is quietly ignored.
+					continue
+				}
+			}
 		}
 
 		switch attr.Type() {
@@ -916,6 +930,8 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 			next = nextHop.next
 		case MULTI_EXIT_DISC:
 			med = int(GetPathAttr[*MultiExitDisc](attr).discriminator)
+		case LOCAL_PREF:
+			localPref = int(GetPathAttr[*LocalPref](attr).value)
 		}
 	}
 	// If the UPDATE message contains a non-empty Withdrawn routes field,
@@ -943,9 +959,8 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 
 		// Otherwise, if the Adj-RIB-In has no route with NLRI identical to the new route,
 		// the new route shall be placed in the Adj-RIB-In.
-		path := newPath(p.peerInfo, p.neighbor.as, next, origin, asPath, med, feasibleRoute, recognizedAttrs, p.link)
+		path := newPath(p.peerInfo, p.neighbor.as, next, origin, asPath, med, localPref, feasibleRoute, propagateAttrs, p.link)
 		feasiblePathes = append(feasiblePathes, path)
-		// p.rib.In.Insert(path)
 		adjRibInUpdate = true
 		// p.logInfo("Insert into Adg-RIB-In: %s", path)
 		// Once the BGP speaker updates the Adj-RIB-In, the speaker shall run its Decision Process.
@@ -955,4 +970,47 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 		p.enqueueEvent(&triggerDecisionProcess{pathes: feasiblePathes, withdrawn: false})
 	}
 	return nil
+}
+
+func (p *peer) generateOutPath(path *Path) (*Path, error) {
+	outPath := path.DeepCopy()
+	outPath.info = p.peerInfo
+	if path.local {
+		return &outPath, nil
+	}
+	// Nexthop: If path.nexthop is same as neighbor address, use same next hop value
+	if !path.nextHop.Equal(p.neighbor.addr) {
+		// otherwise, update next hop value as my own address
+		outPath.nextHop = p.addr
+	}
+	// AS path: add my own AS number to AS sequence
+	outPath.asPath.UpdateSequence(uint16(p.as))
+	// Origin: Now this cannot aggregate routes, use same origin value
+
+	// path attributes: Now this can only recognize and handle well-known attributes.
+
+	return &outPath, nil
+}
+
+func (p *peer) buildUpdateMessage(pathes []*Path) (*Packet, error) {
+	builder := Builder(UPDATE)
+	if len(pathes) == 0 {
+		return builder.Packet(), nil
+	}
+	if len(pathes) > 1 {
+		for i := 0; i < len(pathes)-1; i++ {
+			p1 := pathes[i]
+			p2 := pathes[i+1]
+			if _, err := comparePath(p1, p2); err != nil {
+				return nil, fmt.Errorf("buildUpdateMessage: %w", err)
+			}
+		}
+	}
+	nlri := make([]*Prefix, 0, len(pathes))
+	for _, path := range pathes {
+		nlri = append(nlri, path.nlri)
+	}
+	builder.PathAttrs(pathes[0].GetPathAttrs())
+	builder.NLRI(nlri)
+	return builder.Packet(), nil
 }
