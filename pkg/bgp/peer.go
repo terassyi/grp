@@ -993,22 +993,28 @@ func (p *peer) generateOutPath(path *Path) (*Path, error) {
 }
 
 func (p *peer) buildUpdateMessage(pathes []*Path) (*Update, error) {
-	for i := 0; i < len(pathes)-1; i++ {
-		p1 := pathes[i]
-		p2 := pathes[i+1]
-		if !p1.asPath.Equal(&p2.asPath) {
-			return nil, fmt.Errorf("buildUpdateMessage: cannot unite: AS_PATH")
-		}
-		if !p1.origin.Equal(&p2.origin) {
-			return nil, fmt.Errorf("buildUpdateMessage: cannot unite: ORIGIN")
-		}
-		if p1.nextHop.Equal(p2.nextHop) {
-			return nil, fmt.Errorf("buildUpdateMessage: cannot unite: NEXT_HOP")
-		}
-		if len(p1.pathAttributes) != len(p2.pathAttributes) {
-			return nil, fmt.Errorf("buildUpdateMessage: cannot unite: different propagated path attribute length")
+	if len(pathes) == 0 {
+		return &Update{}, nil
+	}
+	if len(pathes) > 1 {
+		for i := 0; i < len(pathes)-1; i++ {
+			p1 := pathes[i]
+			p2 := pathes[i+1]
+			if _, err := comparePath(p1, p2); err != nil {
+				return nil, fmt.Errorf("buildUpdateMessage: %w", err)
+			}
 		}
 	}
-
-	return nil, nil
+	nlri := make([]*Prefix, 0, len(pathes))
+	for _, path := range pathes {
+		nlri = append(nlri, path.nlri)
+	}
+	msg := &Update{
+		WithdrawnRoutesLen:           0,
+		WithdrawnRoutes:              nil,
+		TotalPathAttrLen:             0,
+		PathAttrs:                    pathes[0].GetPathAttrs(),
+		NetworkLayerReachabilityInfo: nlri,
+	}
+	return msg, nil
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSortPathes(t *testing.T) {
@@ -444,6 +445,176 @@ func TestSortPathes(t *testing.T) {
 			t.Logf("sorted pathlist want:%v, actual:%v", tt.expIdList, idList)
 			t.Logf("sorted pathlist reason: %v", reasonList)
 			assert.Equal(t, tt.expIdList, idList)
+		})
+	}
+}
+
+func TestComparePath(t *testing.T) {
+	tests := []struct {
+		name    string
+		p1      *Path
+		p2      *Path
+		wantErr bool
+	}{
+		{
+			name: "EQUAL 1",
+			p1: &Path{
+				as:             100,
+				asPath:         *CreateASPath([]uint16{100, 200}),
+				origin:         *CreateOrigin(ORIGIN_IGP),
+				nextHop:        net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{},
+			},
+			p2: &Path{
+				as:             100,
+				asPath:         *CreateASPath([]uint16{100, 200}),
+				origin:         *CreateOrigin(ORIGIN_IGP),
+				nextHop:        net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{},
+			},
+			wantErr: false,
+		},
+		{
+			name: "EQUAL 2",
+			p1: &Path{
+				as:      100,
+				asPath:  *CreateASPath([]uint16{100, 200}),
+				origin:  *CreateOrigin(ORIGIN_IGP),
+				nextHop: net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{&UnimplementedPathAttr{
+					pathAttr: &pathAttr{typ: COMMUNITIES, flags: PATH_ATTR_FLAG_OPTIONAL | PATH_ATTR_FLAG_TRANSITIVE},
+					data:     []byte{0x00, 0x01, 0x02},
+				}},
+			},
+			p2: &Path{
+				as:      100,
+				asPath:  *CreateASPath([]uint16{100, 200}),
+				origin:  *CreateOrigin(ORIGIN_IGP),
+				nextHop: net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{&UnimplementedPathAttr{
+					pathAttr: &pathAttr{typ: COMMUNITIES, flags: PATH_ATTR_FLAG_OPTIONAL | PATH_ATTR_FLAG_TRANSITIVE},
+					data:     []byte{0x00, 0x01, 0x02},
+				}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "NOT EQUAL AS_PATH",
+			p1: &Path{
+				as:      100,
+				asPath:  *CreateASPath([]uint16{300, 200}),
+				origin:  *CreateOrigin(ORIGIN_IGP),
+				nextHop: net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{&UnimplementedPathAttr{
+					pathAttr: &pathAttr{typ: COMMUNITIES, flags: PATH_ATTR_FLAG_OPTIONAL | PATH_ATTR_FLAG_TRANSITIVE},
+					data:     []byte{0x00, 0x01, 0x02},
+				}},
+			},
+			p2: &Path{
+				as:      100,
+				asPath:  *CreateASPath([]uint16{100, 200}),
+				origin:  *CreateOrigin(ORIGIN_IGP),
+				nextHop: net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{&UnimplementedPathAttr{
+					pathAttr: &pathAttr{typ: COMMUNITIES, flags: PATH_ATTR_FLAG_OPTIONAL | PATH_ATTR_FLAG_TRANSITIVE},
+					data:     []byte{0x00, 0x01, 0x02},
+				}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "NOT EQUAL ORIGIN",
+			p1: &Path{
+				as:             100,
+				asPath:         *CreateASPath([]uint16{100, 200}),
+				origin:         *CreateOrigin(ORIGIN_IGP),
+				nextHop:        net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{},
+			},
+			p2: &Path{
+				as:             100,
+				asPath:         *CreateASPath([]uint16{100, 200}),
+				origin:         *CreateOrigin(ORIGIN_EGP),
+				nextHop:        net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{},
+			},
+			wantErr: true,
+		},
+		{
+			name: "NOT EQUAL NEXT_HOP",
+			p1: &Path{
+				as:             100,
+				asPath:         *CreateASPath([]uint16{100, 200}),
+				origin:         *CreateOrigin(ORIGIN_IGP),
+				nextHop:        net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{},
+			},
+			p2: &Path{
+				as:             100,
+				asPath:         *CreateASPath([]uint16{100, 200}),
+				origin:         *CreateOrigin(ORIGIN_IGP),
+				nextHop:        net.ParseIP("10.0.1.3"),
+				pathAttributes: []PathAttr{},
+			},
+			wantErr: true,
+		},
+		{
+			name: "NOT EQUAL Path Attributes length",
+			p1: &Path{
+				as:      100,
+				asPath:  *CreateASPath([]uint16{100, 200}),
+				origin:  *CreateOrigin(ORIGIN_IGP),
+				nextHop: net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{&UnimplementedPathAttr{
+					pathAttr: &pathAttr{typ: COMMUNITIES, flags: PATH_ATTR_FLAG_OPTIONAL | PATH_ATTR_FLAG_TRANSITIVE},
+					data:     []byte{0x00, 0x01, 0x02},
+				}},
+			},
+			p2: &Path{
+				as:             100,
+				asPath:         *CreateASPath([]uint16{100, 200}),
+				origin:         *CreateOrigin(ORIGIN_IGP),
+				nextHop:        net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{},
+			},
+			wantErr: true,
+		},
+		{
+			name: "NOT EQUAL Path attributes",
+			p1: &Path{
+				as:      100,
+				asPath:  *CreateASPath([]uint16{100, 200}),
+				origin:  *CreateOrigin(ORIGIN_IGP),
+				nextHop: net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{&UnimplementedPathAttr{
+					pathAttr: &pathAttr{typ: COMMUNITIES, flags: PATH_ATTR_FLAG_OPTIONAL | PATH_ATTR_FLAG_TRANSITIVE},
+					data:     []byte{0x00, 0x01, 0x02},
+				}},
+			},
+			p2: &Path{
+				as:      100,
+				asPath:  *CreateASPath([]uint16{100, 200}),
+				origin:  *CreateOrigin(ORIGIN_IGP),
+				nextHop: net.ParseIP("10.0.0.3"),
+				pathAttributes: []PathAttr{&UnimplementedPathAttr{
+					pathAttr: &pathAttr{typ: EXTENDED_COMMUNITIES, flags: PATH_ATTR_FLAG_OPTIONAL | PATH_ATTR_FLAG_TRANSITIVE},
+					data:     []byte{0x00, 0x01, 0x04},
+				}},
+			},
+			wantErr: true,
+		},
+	}
+	t.Parallel()
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			eq, err := comparePath(tt.p1, tt.p2)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, true, eq)
+			}
 		})
 	}
 }

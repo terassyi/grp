@@ -76,6 +76,16 @@ func CreateLocalPath(network string, as int, nextHop net.IP) (*Path, error) {
 	return path, nil
 }
 
+func (p *Path) GetPathAttrs() []PathAttr {
+	attrs := make([]PathAttr, 0, 3)
+	attrs = append(attrs, &p.origin)
+	attrs = append(attrs, &p.asPath)
+	attrs = append(attrs, CreateNextHop(p.nextHop))
+	attrs = append(attrs, CreateMultiExitDisc(uint32(p.med)))
+	attrs = append(attrs, p.pathAttributes...)
+	return attrs
+}
+
 func (p *Path) String() string {
 	attrTypes := ""
 	for _, attr := range p.pathAttributes {
@@ -368,4 +378,25 @@ func (p PathStatus) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+func comparePath(p1, p2 *Path) (bool, error) {
+	if !p1.asPath.Equal(&p2.asPath) {
+		return false, fmt.Errorf("buildUpdateMessage: cannot unite: AS_PATH")
+	}
+	if !p1.origin.Equal(&p2.origin) {
+		return false, fmt.Errorf("buildUpdateMessage: cannot unite: ORIGIN")
+	}
+	if !p1.nextHop.Equal(p2.nextHop) {
+		return false, fmt.Errorf("buildUpdateMessage: cannot unite: NEXT_HOP")
+	}
+	if len(p1.pathAttributes) != len(p2.pathAttributes) {
+		return false, fmt.Errorf("buildUpdateMessage: cannot unite: different propagated path attribute length")
+	}
+	for j := 0; j < len(p1.pathAttributes); j++ {
+		if !p1.pathAttributes[j].Equal(p2.pathAttributes[j]) {
+			return false, fmt.Errorf("buildUpdateMessage: cannot unite: %s", p1.pathAttributes[j].Type())
+		}
+	}
+	return true, nil
 }

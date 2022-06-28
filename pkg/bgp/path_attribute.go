@@ -788,6 +788,17 @@ func newLocalPref(buf *bytes.Buffer, base *pathAttr) (*LocalPref, error) {
 	return attr, nil
 }
 
+func CreateLocalPref(value uint32) *LocalPref {
+	return &LocalPref{
+		pathAttr: &pathAttr{
+			typ:   LOCAL_PREF,
+			flags: PATH_ATTR_FLAG_OPTIONAL,
+		},
+		length: 4,
+		value:  value,
+	}
+}
+
 func (*LocalPref) Type() PathAttrType {
 	return LOCAL_PREF
 }
