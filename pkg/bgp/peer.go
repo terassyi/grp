@@ -992,9 +992,10 @@ func (p *peer) generateOutPath(path *Path) (*Path, error) {
 	return &outPath, nil
 }
 
-func (p *peer) buildUpdateMessage(pathes []*Path) (*Update, error) {
+func (p *peer) buildUpdateMessage(pathes []*Path) (*Packet, error) {
+	builder := Builder(UPDATE)
 	if len(pathes) == 0 {
-		return &Update{}, nil
+		return builder.Packet(), nil
 	}
 	if len(pathes) > 1 {
 		for i := 0; i < len(pathes)-1; i++ {
@@ -1009,12 +1010,7 @@ func (p *peer) buildUpdateMessage(pathes []*Path) (*Update, error) {
 	for _, path := range pathes {
 		nlri = append(nlri, path.nlri)
 	}
-	msg := &Update{
-		WithdrawnRoutesLen:           0,
-		WithdrawnRoutes:              nil,
-		TotalPathAttrLen:             0,
-		PathAttrs:                    pathes[0].GetPathAttrs(),
-		NetworkLayerReachabilityInfo: nlri,
-	}
-	return msg, nil
+	builder.PathAttrs(pathes[0].GetPathAttrs())
+	builder.NLRI(nlri)
+	return builder.Packet(), nil
 }
