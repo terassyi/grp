@@ -730,7 +730,7 @@ func (attr *NextHop) Flags() uint8 {
 	return attr.flags
 }
 
-func (attr *NextHop) Stirng() string {
+func (attr *NextHop) String() string {
 	base := attr.pathAttr.String()
 	base += "\n"
 	base += fmt.Sprintf("next hop=%s", attr.next)
@@ -763,7 +763,7 @@ func (attr *NextHop) Decode() ([]byte, error) {
 	if err := binary.Write(buf, binary.BigEndian, attr.length); err != nil {
 		return nil, fmt.Errorf("NextHop_Decode: length: %w", err)
 	}
-	if err := binary.Write(buf, binary.BigEndian, attr.next); err != nil {
+	if err := binary.Write(buf, binary.BigEndian, attr.next.To4()); err != nil {
 		return nil, fmt.Errorf("NextHop_Decode: next hop: %w", err)
 	}
 	return buf.Bytes(), nil
