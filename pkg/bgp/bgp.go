@@ -229,11 +229,9 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 }
 
 func (b *Bgp) pollRib(ctx context.Context) {
-	b.logger.Infof("LocRib poll start")
 	for {
 		select {
 		case pathes := <-b.locRib.queue:
-			b.logger.Infof("LocRib request %d", len(pathes))
 			for _, path := range pathes {
 				if err := b.locRib.Insert(path); err != nil {
 					b.logger.Errorf("pollRib: ", err)
@@ -262,7 +260,6 @@ func (b *Bgp) originateRoutes(networks []string) error {
 		if selected == nil {
 			continue
 		}
-		b.logger.Infof("Selected %s", path)
 		if err := b.locRib.Insert(selected); err != nil {
 			return fmt.Errorf("Bgp_originateRoutes: %w", err)
 		}
