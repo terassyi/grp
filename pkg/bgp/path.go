@@ -54,7 +54,7 @@ func newPath(info *peerInfo, as int, nextHop net.IP, origin Origin, asPath ASPat
 	}
 }
 
-func CreateLocalPath(network string, as int, nextHop net.IP) (*Path, error) {
+func CreateLocalPath(network string, as int) (*Path, error) {
 	_, cidr, err := net.ParseCIDR(network)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func CreateLocalPath(network string, as int, nextHop net.IP) (*Path, error) {
 		as:        as,
 		origin:    *CreateOrigin(ORIGIN_IGP),
 		asPath:    *CreateASPath([]uint16{uint16(as)}),
-		nextHop:   nextHop,
+		nextHop:   nil,
 		local:     true,
 		med:       0,
 		localPref: 100,

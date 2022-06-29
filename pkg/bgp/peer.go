@@ -792,6 +792,9 @@ func (p *peer) recvNotificationMsgEvent(evt event) error {
 }
 
 func (p *peer) triggerDecisionProcessEvent(evt event) error {
+	if p.state != ESTABLISHED {
+		return nil
+	}
 	de := evt.(*triggerDecisionProcess)
 	errs := []error{}
 	updatedPathes := make([]*Path, 0, len(de.pathes))
@@ -818,6 +821,9 @@ func (p *peer) triggerDecisionProcessEvent(evt event) error {
 }
 
 func (p *peer) triggerDisseminationEvent(evt event) error {
+	if p.state != ESTABLISHED {
+		return nil
+	}
 	de := evt.(*triggerDissemination)
 	p.logInfo("dissemination start")
 	return p.Disseminate(de.pathes, de.withdrawn)

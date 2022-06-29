@@ -32,14 +32,10 @@ type Bgp struct {
 	peers        map[string]*peer // key: ipaddr string, value: peer struct pointer
 	locRib       *LocRib
 	adjRibIn     *AdjRibIn
-	networks     []*network
+	networks     []*net.IPNet
 	requestQueue chan *Request
 	logger       log.Logger
 	signalCh     chan os.Signal
-}
-
-type network struct {
-	*net.IPNet
 }
 
 type state uint8
@@ -108,7 +104,7 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 		adjRibIn:     newAdjRibIn(),
 		logger:       logger,
 		requestQueue: make(chan *Request, 16),
-		networks:     make([]*network, 0),
+		networks:     make([]*net.IPNet, 0),
 		signalCh:     sigCh,
 	}, nil
 }
@@ -141,7 +137,7 @@ func FromConfig(conf *Config, logLevel int, logOut string) (*Bgp, error) {
 		if err != nil {
 			return nil, err
 		}
-		b.networks = append(b.networks, &network{cidr})
+		b.networks = append(b.networks, cidr)
 	}
 	return b, nil
 }
@@ -160,6 +156,13 @@ func (b *Bgp) setRouterId(routerId string) error {
 
 func (b *Bgp) Poll() error {
 	b.logger.Infoln("BGP daemon start.")
+	for _, network := range b.networks {
+		localPath, err := CreateLocalPath(network.String(), b.as)
+		if err != nil {
+			return err
+		}
+		b.adjRibIn.Insert(localPath)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := b.poll(ctx); err != nil { // BGP daemon main routine
 		cancel()
@@ -170,12 +173,10 @@ func (b *Bgp) Poll() error {
 		go p.poll(cctx)
 		p.enqueueEvent(&bgpStart{})
 	}
-	select {
-	case <-b.signalCh:
-		b.logger.Infof("Receive a signal. Terminate GRP BGP daemon.")
-		cancel()
-		return nil
-	}
+	<-b.signalCh
+	b.logger.Infof("Receive a signal. Terminate GRP BGP daemon.")
+	cancel()
+	return nil
 }
 
 func (b *Bgp) poll(ctx context.Context) error {
@@ -188,6 +189,8 @@ func (b *Bgp) poll(ctx context.Context) error {
 				if err := b.requestHandle(ctx, req); err != nil {
 					b.logger.Errorf("Request handler: %s", err)
 				}
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()
