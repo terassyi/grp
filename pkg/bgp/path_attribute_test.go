@@ -303,3 +303,168 @@ func TestGetFromPathAttrs(t *testing.T) {
 		})
 	}
 }
+
+func TestASPathSegment_UpdateSequence(t *testing.T) {
+	tests := []struct {
+		name string
+		seg  *ASPathSegment
+		asn  uint16
+		want []uint16
+	}{
+		{
+			name: "200 100",
+			seg:  &ASPathSegment{Type: SEG_TYPE_AS_SEQUENCE, Length: 1, AS2: []uint16{100}},
+			asn:  200,
+			want: []uint16{200, 100},
+		},
+		{
+			name: "300 200 100",
+			seg:  &ASPathSegment{Type: SEG_TYPE_AS_SEQUENCE, Length: 2, AS2: []uint16{200, 100}},
+			asn:  300,
+			want: []uint16{300, 200, 100},
+		},
+		{
+			name: "100",
+			seg:  &ASPathSegment{Type: SEG_TYPE_AS_SEQUENCE, Length: 0, AS2: nil},
+			asn:  100,
+			want: []uint16{100},
+		},
+		{
+			name: "AS_SET",
+			seg:  &ASPathSegment{Type: SEG_TYPE_AS_SET, Length: 1, AS2: []uint16{100}},
+			asn:  200,
+			want: []uint16{100},
+		},
+	}
+	t.Parallel()
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			tt.seg.UpdateSequence(tt.asn)
+			assert.Equal(t, tt.want, tt.seg.AS2)
+			assert.Equal(t, len(tt.want), int(tt.seg.Length))
+		})
+	}
+}
+
+func TestASPath_Equal(t *testing.T) {
+	tests := []struct {
+		name   string
+		asPath *ASPath
+		target *ASPath
+		res    bool
+	}{
+		{
+			name:   "Only Sequence Equal",
+			asPath: CreateASPath([]uint16{100, 200, 300}),
+			target: CreateASPath([]uint16{100, 200, 300}),
+			res:    true,
+		},
+		{
+			name:   "Only Sequence Not Equal",
+			asPath: CreateASPath([]uint16{100, 200, 300}),
+			target: CreateASPath([]uint16{100, 400, 300}),
+			res:    false,
+		},
+		{
+			name: "Set and Sequence Equal",
+			asPath: &ASPath{
+				pathAttr: &pathAttr{typ: AS_PATH, flags: PATH_ATTR_FLAG_EXTENDED},
+				Segments: []*ASPathSegment{
+					{
+						Type:   SEG_TYPE_AS_SEQUENCE,
+						Length: 4,
+						AS2:    []uint16{100, 200, 300, 400},
+					},
+					{
+						Type:   SEG_TYPE_AS_SET,
+						Length: 2,
+						AS2:    []uint16{500, 600},
+					},
+				},
+			},
+			target: &ASPath{
+				pathAttr: &pathAttr{typ: AS_PATH, flags: PATH_ATTR_FLAG_EXTENDED},
+				Segments: []*ASPathSegment{
+					{
+						Type:   SEG_TYPE_AS_SEQUENCE,
+						Length: 4,
+						AS2:    []uint16{100, 200, 300, 400},
+					},
+					{
+						Type:   SEG_TYPE_AS_SET,
+						Length: 2,
+						AS2:    []uint16{500, 600},
+					},
+				},
+			},
+			res: true,
+		},
+		{
+			name: "Set and Sequence Not Equal",
+			asPath: &ASPath{
+				pathAttr: &pathAttr{typ: AS_PATH, flags: PATH_ATTR_FLAG_EXTENDED},
+				Segments: []*ASPathSegment{
+					{
+						Type:   SEG_TYPE_AS_SEQUENCE,
+						Length: 4,
+						AS2:    []uint16{100, 200, 300, 400},
+					},
+					{
+						Type:   SEG_TYPE_AS_SET,
+						Length: 2,
+						AS2:    []uint16{500, 800},
+					},
+				},
+			},
+			target: &ASPath{
+				pathAttr: &pathAttr{typ: AS_PATH, flags: PATH_ATTR_FLAG_EXTENDED},
+				Segments: []*ASPathSegment{
+					{
+						Type:   SEG_TYPE_AS_SEQUENCE,
+						Length: 4,
+						AS2:    []uint16{100, 200, 300, 400},
+					},
+					{
+						Type:   SEG_TYPE_AS_SET,
+						Length: 2,
+						AS2:    []uint16{500, 600},
+					},
+				},
+			},
+			res: false,
+		},
+	}
+	t.Parallel()
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			res := tt.asPath.Equal(tt.target)
+			assert.Equal(t, tt.res, res)
+		})
+	}
+}
+
+func TestASPath_UpdateSequence(t *testing.T) {
+	tests := []struct {
+		name   string
+		asPath *ASPath
+		asn    uint16
+		exp    []uint16
+	}{
+		{
+			name:   "CASE 1",
+			asPath: CreateASPath([]uint16{}),
+			asn:    100,
+			exp:    []uint16{100},
+		},
+	}
+	t.Parallel()
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			tt.asPath.UpdateSequence(tt.asn)
+			assert.Equal(t, tt.exp, tt.asPath.GetSequence())
+		})
+	}
+}

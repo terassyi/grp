@@ -13,33 +13,7 @@ import (
 )
 
 func TestLocRib_Insert(t *testing.T) {
-	loc, err := NewLocRib()
-	require.NoError(t, err)
-	tests := []struct {
-		name    string
-		network string
-		expErr  error
-	}{
-		{name: "VALID 10.1.0.0/24", network: "10.0.1.0/24", expErr: nil},
-		{name: "VALID 10.1.2.0/24", network: "10.0.1.2/24", expErr: nil},
-	}
-	t.Parallel()
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			err := loc.Insert(tt.network)
-			if tt.expErr == nil {
-				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
-			}
-		})
-	}
-}
-
-func TestLocRib_InsertPath(t *testing.T) {
-	loc, err := NewLocRib()
-	require.NoError(t, err)
+	loc := NewLocRib()
 	eth0, err := netlink.LinkByName("eth0")
 	require.NoError(t, err)
 	eth1, err := netlink.LinkByName("eth1")
@@ -57,20 +31,26 @@ func TestLocRib_InsertPath(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			err := loc.InsertPath(tt.path)
+			err := loc.Insert(tt.path)
 			require.NoError(t, err)
 		})
 	}
 
 }
 func TestLocRib_IsReachable(t *testing.T) {
-	loc, err := NewLocRib()
-	require.NoError(t, err)
-	loc.Insert("10.0.0.0/24")
-	loc.Insert("10.1.0.0/24")
-	loc.Insert("10.2.0.0/24")
-	loc.Insert("10.3.0.0/24")
-	loc.Insert("10.4.0.0/24")
+	loc := NewLocRib()
+
+	nlri1 := PrefixFromString("10.0.0.0/24")
+	nlri2 := PrefixFromString("10.1.0.0/24")
+	nlri3 := PrefixFromString("10.2.0.0/24")
+	nlri4 := PrefixFromString("10.3.0.0/24")
+	nlri5 := PrefixFromString("10.4.0.0/24")
+
+	loc.table[nlri1.String()] = &Path{nlri: nlri1}
+	loc.table[nlri2.String()] = &Path{nlri: nlri2}
+	loc.table[nlri3.String()] = &Path{nlri: nlri3}
+	loc.table[nlri4.String()] = &Path{nlri: nlri4}
+	loc.table[nlri5.String()] = &Path{nlri: nlri5}
 
 	tests := []struct {
 		name string
@@ -91,6 +71,135 @@ func TestLocRib_IsReachable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			res := loc.IsReachable(tt.addr)
 			assert.Equal(t, tt.res, res)
+		})
+	}
+}
+
+func TestLocRib_GetNotSyncedPath(t *testing.T) {
+	loc := NewLocRib()
+	eth0, err := netlink.LinkByName("eth0")
+	require.NoError(t, err)
+	eth1, err := netlink.LinkByName("eth1")
+	require.NoError(t, err)
+	pathMap := make(map[string]*Path)
+	pathMap["10.0.0.0/24"] = &Path{
+		id: 1,
+		info: &peerInfo{
+			neighbor: &neighbor{
+				addr:     net.ParseIP("10.0.0.3"),
+				port:     179,
+				routerId: net.ParseIP("2.2.2.2"),
+				as:       200,
+			},
+			link: eth0,
+			as:   100,
+		},
+		nextHop: net.ParseIP("10.0.0.3"),
+		nlri:    PrefixFromString("10.0.0.0/24"),
+		status:  PathStatusInstalledIntoLocRib,
+	}
+	pathMap["10.0.1.0/24"] = &Path{
+		id: 3,
+		info: &peerInfo{
+			neighbor: &neighbor{
+				addr:     net.ParseIP("10.0.0.3"),
+				port:     179,
+				routerId: net.ParseIP("2.2.2.2"),
+				as:       200,
+			},
+			link: eth0,
+			as:   100,
+		},
+		nextHop: net.ParseIP("10.0.0.3"),
+		nlri:    PrefixFromString("10.0.1.0/24"),
+		status:  PathStatusInstalledIntoLocRib,
+	}
+	pathMap["10.0.2.0/24"] = &Path{
+		id: 4,
+		info: &peerInfo{
+			neighbor: &neighbor{
+				addr:     net.ParseIP("10.0.0.3"),
+				port:     179,
+				routerId: net.ParseIP("2.2.2.2"),
+				as:       200,
+			},
+			link: eth0,
+			as:   100,
+		},
+		nextHop: net.ParseIP("10.0.0.3"),
+		nlri:    PrefixFromString("10.0.1.0/24"),
+		status:  PathStatusDisseminated,
+	}
+
+	pathMap["10.1.0.0/24"] = &Path{
+		id: 2,
+		info: &peerInfo{
+			neighbor: &neighbor{
+				addr:     net.ParseIP("10.0.1.4"),
+				port:     179,
+				routerId: net.ParseIP("4.4.4.4"),
+				as:       400,
+			},
+			link: eth1,
+			as:   100,
+		},
+		nextHop: net.ParseIP("10.0.1.4"),
+		nlri:    PrefixFromString("10.0.1.0/24"),
+		status:  PathStatusNotSynchronized,
+	}
+	pathMap["10.1.1.0/24"] = &Path{
+		id: 5,
+		info: &peerInfo{
+			neighbor: &neighbor{
+				addr:     net.ParseIP("10.0.1.4"),
+				port:     179,
+				routerId: net.ParseIP("4.4.4.4"),
+				as:       400,
+			},
+			link: eth1,
+			as:   100,
+		},
+		nextHop: net.ParseIP("10.0.1.4"),
+		nlri:    PrefixFromString("10.1.1.0/24"),
+		status:  PathStatusDisseminated,
+	}
+	pathMap["10.2.0.0/24"] = &Path{
+		id:      6,
+		info:    nil,
+		nextHop: net.ParseIP("10.2.0.1"),
+		nlri:    PrefixFromString("10.2.0.0/24"),
+		status:  PathStatusInstalledIntoLocRib,
+		local:   true,
+	}
+	pathMap["10.2.4.0/24"] = &Path{
+		id:      7,
+		info:    nil,
+		nextHop: net.ParseIP("10.2.0.1"),
+		nlri:    PrefixFromString("10.2.4.0/24"),
+		status:  PathStatusDisseminated,
+		local:   true,
+	}
+
+	for nlri, path := range pathMap {
+		loc.table[nlri] = path
+	}
+
+	tests := []struct {
+		name string
+		want []*Path
+	}{
+		{
+			name: "case 1",
+			want: []*Path{pathMap["10.0.0.0/24"], pathMap["10.0.1.0/24"], pathMap["10.2.0.0/24"], pathMap["10.1.0.0/24"]},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			pathes, err := loc.GetNotSyncedPath()
+			require.NoError(t, err)
+			assert.Equal(t, len(tt.want), len(pathes))
+			// assert.Equal(t, tt.want, pathes)
 		})
 	}
 }
@@ -193,22 +302,22 @@ func TestAdjRibIn_Drop(t *testing.T) {
 func TestAdjRibOut_Lookup(t *testing.T) {
 	r := &AdjRibOut{mutex: &sync.RWMutex{}, table: make(map[string]*Path)}
 	r.Insert(&Path{
-		as:              100,
-		nextHop:         net.ParseIP("10.0.0.1"),
-		nlri:            &Prefix{Length: 24, Prefix: net.ParseIP("10.1.0.0")},
-		recognizedAttrs: []PathAttr{},
+		as:             100,
+		nextHop:        net.ParseIP("10.0.0.1"),
+		nlri:           &Prefix{Length: 24, Prefix: net.ParseIP("10.1.0.0")},
+		pathAttributes: []PathAttr{},
 	})
 	r.Insert(&Path{
-		as:              200,
-		nextHop:         net.ParseIP("10.1.0.1"),
-		nlri:            &Prefix{Length: 24, Prefix: net.ParseIP("10.2.0.0")},
-		recognizedAttrs: []PathAttr{},
+		as:             200,
+		nextHop:        net.ParseIP("10.1.0.1"),
+		nlri:           &Prefix{Length: 24, Prefix: net.ParseIP("10.2.0.0")},
+		pathAttributes: []PathAttr{},
 	})
 	r.Insert(&Path{
-		as:              300,
-		nextHop:         net.ParseIP("10.2.0.1"),
-		nlri:            &Prefix{Length: 24, Prefix: net.ParseIP("10.3.0.0")},
-		recognizedAttrs: []PathAttr{},
+		as:             300,
+		nextHop:        net.ParseIP("10.2.0.1"),
+		nlri:           &Prefix{Length: 24, Prefix: net.ParseIP("10.3.0.0")},
+		pathAttributes: []PathAttr{},
 	})
 	tests := []struct {
 		name   string
@@ -248,22 +357,22 @@ func TestAdjRibOut_Lookup(t *testing.T) {
 func TestAdjRibOut_Drop(t *testing.T) {
 	r := &AdjRibOut{mutex: &sync.RWMutex{}, table: make(map[string]*Path)}
 	r.Insert(&Path{
-		as:              100,
-		nextHop:         net.ParseIP("10.0.0.1"),
-		nlri:            &Prefix{Length: 24, Prefix: net.ParseIP("10.1.0.0")},
-		recognizedAttrs: []PathAttr{},
+		as:             100,
+		nextHop:        net.ParseIP("10.0.0.1"),
+		nlri:           &Prefix{Length: 24, Prefix: net.ParseIP("10.1.0.0")},
+		pathAttributes: []PathAttr{},
 	})
 	r.Insert(&Path{
-		as:              200,
-		nextHop:         net.ParseIP("10.1.0.1"),
-		nlri:            &Prefix{Length: 24, Prefix: net.ParseIP("10.2.0.0")},
-		recognizedAttrs: []PathAttr{},
+		as:             200,
+		nextHop:        net.ParseIP("10.1.0.1"),
+		nlri:           &Prefix{Length: 24, Prefix: net.ParseIP("10.2.0.0")},
+		pathAttributes: []PathAttr{},
 	})
 	r.Insert(&Path{
-		as:              300,
-		nextHop:         net.ParseIP("10.2.0.1"),
-		nlri:            &Prefix{Length: 24, Prefix: net.ParseIP("10.3.0.0")},
-		recognizedAttrs: []PathAttr{},
+		as:             300,
+		nextHop:        net.ParseIP("10.2.0.1"),
+		nlri:           &Prefix{Length: 24, Prefix: net.ParseIP("10.3.0.0")},
+		pathAttributes: []PathAttr{},
 	})
 	tests := []struct {
 		name   string
@@ -300,8 +409,8 @@ func TestAdjRibOut_Drop(t *testing.T) {
 func TestPeer_Select(t *testing.T) {
 	logger, err := log.New(log.NoLog, "")
 	require.NoError(t, err)
-	r, _ := NewLocRib()
-	ar, _ := newAdjRib()
+	r := NewLocRib()
+	ar := newAdjRibIn()
 	eth0, err := netlink.LinkByName("eth0")
 	require.NoError(t, err)
 	p := newPeer(logger, eth0, net.ParseIP("10.0.0.2"), net.ParseIP("10.0.0.3"), net.ParseIP("1.1.1.1"), 100, 200, r, ar)
@@ -310,6 +419,7 @@ func TestPeer_Select(t *testing.T) {
 		name            string
 		path            *Path
 		adjRibInPathLen int
+		withdraw        bool
 		expectedBest    bool
 		expectedReason  BestPathSelectionReason
 		wantErr         bool
@@ -392,7 +502,7 @@ func TestPeer_Select(t *testing.T) {
 			LinkIndex: eth0.Attrs().Index,
 			Dst:       delRoute1,
 		}); err != nil {
-			t.Fatal(err)
+			t.Log(err)
 		}
 		t.Log("Clean up")
 	})
@@ -417,7 +527,7 @@ func TestPeer_Select(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt := tt
 			t.Log(tt.path.nlri.Network())
-			err := p.Select(tt.path)
+			_, err := p.Select(tt.path, tt.withdraw)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {

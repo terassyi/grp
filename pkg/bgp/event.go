@@ -39,6 +39,7 @@ const (
 	event_type_recv_notification_msg      eventType = iota + 1
 
 	event_type_trigger_decision_process eventType = iota + 1
+	event_type_trigger_dissemination    eventType = iota + 1
 )
 
 func (t eventType) String() string {
@@ -71,6 +72,8 @@ func (t eventType) String() string {
 		return "Receive notification message"
 	case event_type_trigger_decision_process:
 		return "Trigger decision process"
+	case event_type_trigger_dissemination:
+		return "Trigger dissemination"
 	default:
 		return "Unknown event type"
 	}
@@ -111,6 +114,11 @@ type recvNotificationMsg struct {
 }
 
 type triggerDecisionProcess struct {
+	pathes    []*Path
+	withdrawn bool
+}
+
+type triggerDissemination struct {
 	pathes    []*Path
 	withdrawn bool
 }
@@ -169,4 +177,8 @@ func (*recvNotificationMsg) typ() eventType {
 
 func (*triggerDecisionProcess) typ() eventType {
 	return event_type_trigger_decision_process
+}
+
+func (*triggerDissemination) typ() eventType {
+	return event_type_trigger_dissemination
 }

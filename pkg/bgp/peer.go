@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/terassyi/grp/pkg/log"
@@ -152,13 +153,33 @@ func (pi *peerInfo) isIBGP() bool {
 	return pi.as == pi.neighbor.as
 }
 
+func (pi *peerInfo) Equal(target *peerInfo) bool {
+	if !pi.neighbor.Equal(target.neighbor) {
+		return false
+	}
+	if pi.link.Attrs().Index != target.link.Attrs().Index {
+		return false
+	}
+	if !pi.addr.Equal(target.addr) || !pi.routerId.Equal(target.routerId) {
+		return false
+	}
+	if pi.port != target.port {
+		return false
+	}
+	if pi.as != target.as {
+		return false
+	}
+	return true
+}
+
 const (
 	DEFAULT_CONNECT_RETRY_TIME_INTERVAL time.Duration = 120 * time.Second
 	DEFAULT_KEEPALIVE_TIME_INTERVAL     time.Duration = 60 * time.Second
 	DEFAULT_HOLD_TIME_INTERVAL          time.Duration = 180 * time.Second
 )
 
-func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib, adjRib *AdjRib) *peer {
+func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib, adjRibIn *AdjRibIn) *peer {
+	adjRib := &AdjRib{In: adjRibIn, Out: &AdjRibOut{mutex: &sync.RWMutex{}, table: make(map[string]*Path)}}
 	return &peer{
 		peerInfo: &peerInfo{
 			neighbor:  newNeighbor(addr, peerAS),
@@ -173,7 +194,7 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 		holdTime:       DEFAULT_HOLD_TIME_INTERVAL,
 		capabilities:   defaultCaps(),
 		state:          IDLE,
-		eventQueue:     make(chan event, 1),
+		eventQueue:     make(chan event, 128),
 		tx:             make(chan *Packet, 128),
 		rx:             make(chan *Packet, 128),
 		connCh:         make(chan *net.TCPConn, 1),
@@ -260,6 +281,8 @@ func (p *peer) handleEvent(ctx context.Context, evt event) error {
 		return p.recvNotificationMsgEvent(evt)
 	case event_type_trigger_decision_process:
 		return p.triggerDecisionProcessEvent(evt)
+	case event_type_trigger_dissemination:
+		return p.triggerDisseminationEvent(evt)
 	default:
 		return ErrInvalidEventType
 	}
@@ -769,14 +792,35 @@ func (p *peer) recvNotificationMsgEvent(evt event) error {
 }
 
 func (p *peer) triggerDecisionProcessEvent(evt event) error {
-	arg := evt.(*triggerDecisionProcess)
-	withdrawn := arg.withdrawn
-	for _, path := range arg.pathes {
-		if err := p.Decide(path, withdrawn); err != nil {
-			return fmt.Errorf("triggerDecisionProcessEvent: %w", err)
+	de := evt.(*triggerDecisionProcess)
+	errs := []error{}
+	updatedPathes := make([]*Path, 0, len(de.pathes))
+	for _, path := range de.pathes {
+		selected, err := p.Select(path, de.withdrawn)
+		if err != nil {
+			errs = append(errs, err)
+			continue
 		}
+		if selected == nil {
+			continue
+		}
+		updatedPathes = append(updatedPathes, selected)
 	}
+	if len(errs) != 0 {
+		errMsg := ""
+		for _, e := range errs {
+			errMsg += e.Error() + ", "
+		}
+		return fmt.Errorf("Decision process: %s", errMsg)
+	}
+	p.locRib.enqueue(updatedPathes)
 	return nil
+}
+
+func (p *peer) triggerDisseminationEvent(evt event) error {
+	de := evt.(*triggerDissemination)
+	p.logInfo("dissemination start")
+	return p.Disseminate(de.pathes, de.withdrawn)
 }
 
 // initialize resources
@@ -841,35 +885,39 @@ func (t *timer) tick() *time.Ticker {
 // https://datatracker.ietf.org/doc/html/rfc4271#section-9
 func (p *peer) handleUpdateMsg(msg *Update) error {
 	propagateAttrs := make([]PathAttr, 0)
-	recognizedAttrs := make([]PathAttr, 0)
 	var (
 		next            net.IP
 		asPath          ASPath
 		origin          Origin
-		med             int
 		feasiblePathes  []*Path = make([]*Path, 0)
 		withdrawnPathes []*Path = make([]*Path, 0)
 	)
+	med := 0
+	localPref := 100
 	for _, attr := range msg.PathAttrs {
 		if attr.IsRecognized() {
-			recognizedAttrs = append(recognizedAttrs, attr)
-		}
-		// If an optional non-transitive attribute is unrecognized, it is quietly ignored.
-		if attr.IsOptional() && !attr.IsTransitive() {
-			continue
-		}
-		// If an optional transitive attribute is unrecognized, the Partial bit in the attribute flags is set to 1,
-		// and the attribute is retained for propagation to other BGP speakers.
-		if attr.IsOptional() && attr.IsTransitive() && !attr.IsRecognized() {
-			attr.SetPartial()
-			propagateAttrs = append(propagateAttrs, attr)
-		}
+			if attr.IsOptional() {
+				// handle attributes
 
-		// If an optional attribute is recognized, and has a valid value,
-		// then, depending on the type of the optional attruibute, it is processed locally, ratained, and updated,
-		// if necessary, for possible propagation to other BGP speakers.
-		if attr.IsOptional() && attr.IsRecognized() {
-			// handle attribute
+				// If an optional attribute is recognized, and has a valid value,
+				// then, depending on the type of the optional attruibute, it is processed locally, ratained, and updated,
+				// if necessary, for possible propagation to other BGP speakers.
+				if attr.IsTransitive() {
+					propagateAttrs = append(propagateAttrs, attr)
+				}
+			}
+		} else {
+			if attr.IsOptional() {
+				if attr.IsTransitive() {
+					// If an optional transitive attribute is unrecognized, the Partial bit in the attribute flags is set to 1,
+					// and the attribute is retained for propagation to other BGP speakers.
+					attr.SetPartial()
+					propagateAttrs = append(propagateAttrs, attr)
+				} else {
+					// If an optional non-transitive attribute is unrecognized, it is quietly ignored.
+					continue
+				}
+			}
 		}
 
 		switch attr.Type() {
@@ -882,6 +930,8 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 			next = nextHop.next
 		case MULTI_EXIT_DISC:
 			med = int(GetPathAttr[*MultiExitDisc](attr).discriminator)
+		case LOCAL_PREF:
+			localPref = int(GetPathAttr[*LocalPref](attr).value)
 		}
 	}
 	// If the UPDATE message contains a non-empty Withdrawn routes field,
@@ -909,9 +959,8 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 
 		// Otherwise, if the Adj-RIB-In has no route with NLRI identical to the new route,
 		// the new route shall be placed in the Adj-RIB-In.
-		path := newPath(p.peerInfo, p.neighbor.as, next, origin, asPath, med, feasibleRoute, recognizedAttrs, p.link)
+		path := newPath(p.peerInfo, p.neighbor.as, next, origin, asPath, med, localPref, feasibleRoute, propagateAttrs, p.link)
 		feasiblePathes = append(feasiblePathes, path)
-		// p.rib.In.Insert(path)
 		adjRibInUpdate = true
 		// p.logInfo("Insert into Adg-RIB-In: %s", path)
 		// Once the BGP speaker updates the Adj-RIB-In, the speaker shall run its Decision Process.
@@ -919,6 +968,201 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 	// trigger decision process event
 	if adjRibInUpdate {
 		p.enqueueEvent(&triggerDecisionProcess{pathes: feasiblePathes, withdrawn: false})
+	}
+	return nil
+}
+
+func (p *peer) generateOutPath(path *Path) (*Path, error) {
+	outPath := path.DeepCopy()
+	outPath.info = p.peerInfo
+	if path.local {
+		return &outPath, nil
+	}
+	// Nexthop: If path.nexthop is same as neighbor address, use same next hop value
+	if !path.nextHop.Equal(p.neighbor.addr) {
+		// otherwise, update next hop value as my own address
+		outPath.nextHop = p.addr
+	}
+	// AS path: add my own AS number to AS sequence
+	outPath.asPath.UpdateSequence(uint16(p.as))
+	// Origin: Now this cannot aggregate routes, use same origin value
+
+	// path attributes: Now this can only recognize and handle well-known attributes.
+
+	return &outPath, nil
+}
+
+func (p *peer) buildUpdateMessage(pathes []*Path) (*Packet, error) {
+	builder := Builder(UPDATE)
+	if len(pathes) == 0 {
+		return builder.Packet(), nil
+	}
+	if len(pathes) > 1 {
+		for i := 0; i < len(pathes)-1; i++ {
+			p1 := pathes[i]
+			p2 := pathes[i+1]
+			if _, err := comparePath(p1, p2); err != nil {
+				return nil, fmt.Errorf("buildUpdateMessage: %w", err)
+			}
+		}
+	}
+	nlri := make([]*Prefix, 0, len(pathes))
+	for _, path := range pathes {
+		nlri = append(nlri, path.nlri)
+	}
+	builder.PathAttrs(pathes[0].GetPathAttrs())
+	builder.NLRI(nlri)
+	return builder.Packet(), nil
+}
+
+// The Decision Process selects routes for subsequent advertisement by applying the policies in the local Policy Information Base(PIB) to the routes stored in its Adj-RIB-In.
+// The output of the Decision Process is the set of routes that will be advertised to all peers;
+// the selected routes will be stored in the local speaker's Adj-RIB-Out.
+//
+// The selection process is formalized by defining a function that takes the attribute of a given route as an argument
+// and returns a non-negative integer denoting the degree of preference for the route.
+// The function that calculates the degree of preference for a given route shall not use as its inputs any of the following:
+// the existence of other routes, the non-existence of other routes,
+// or the path attributes of other routes.
+// Route selection then consists of individual application of the degree of preference function to each feasible route,
+// followed by the choice of the one with the highest degree of preference.
+
+// The Decision Process operates on routes contained in each Adj-RIB-In, and is responsible for:
+// - selection of routes to be advertised to BGP speakers located in the local speaker's autonomous system
+// - selection of routes to be advertised to BGP speakers located in neighboring autonomous systems
+// - route aggregation and route information reduction
+
+// Calculation of Degree of Preference
+// This decision function is invoked whenever the local BGP speaker receives, from a peer,
+// an UPDATE message that advertises a new route, a replacement route, or withdrawn routes.
+// This decision function is a separate process, which completes when it has no further work to do.
+// This decision function locks an Adj-RIB-In prior to operating on any route contained within it,
+// and unlocks it after operating on all new or unfeasible routes contained within it.
+// For each newly received or replacement feasible route, the local BGP speaker determines a degree of preference as follows:
+//    If the route is learned an internal peer, either the value of the LOCAL_PREF attribute is taken an the degree of preference,
+//    or the local system computes the degree of preference of the route based on preconfigured policy information.
+//    Note that the latter may result information of persistent routing loops.
+//
+//    If the route is learned from an external peer, then the local BGP speaker computes the degree of preference based on preconfigured policy information.
+//    If the return value indicates the route is ineligible, the route MAY NOT serve as an input to the next phase of route selection;
+//    otherwise, the return value MUST be used as the LOCAL_PREF value in any IBGP readvertisement.
+// TODO: implement bestpath selection
+func (p *peer) Calculate(nlri *Prefix, bestPathConfig *BestPathConfig) (BestPathSelectionReason, *Path, error) {
+	pathes := p.rib.In.Lookup(nlri)
+	if pathes == nil {
+		return REASON_INVALID, nil, fmt.Errorf("Peer_Calculate: path is not found for %s", nlri)
+	}
+	p.rib.In.mutex.Lock()
+	defer p.rib.In.mutex.Unlock()
+	res, reason := sortPathes(pathes)
+	if len(res) == 0 {
+		return REASON_INVALID, nil, fmt.Errorf("Peer_Calculate: path is not found for %s", nlri)
+	}
+	// mark best
+	res[0].best = true
+	for i := 1; i < len(res); i++ {
+		res[i].best = false
+	}
+	return reason, res[0], nil
+}
+
+// Route Selection
+// This function is invoked on completion of Calculate().
+// This function is a separate process, which completes when it has no further work to do.
+// This process considers all routes that are eligible in the Adj-RIB-In.
+// This function is blocked from running while the Phase 3 decision functions is in process.
+// This locks all Adj-RIB-In prior to commencing its function, and unlocks then on completion.
+// If the NEXT_HOP attribute of a BGP route depicts an address that is not resolvable,
+// or if it would become unresolvable if the route was installed in the routing table, the BGP route MUST be excluded from this function.
+// IF the AS_PATH attribute of a BGP route contians an AS loop, the BGP route should be excluded from this function.
+// AS loop detection is done by scanning the full AS path(as specified in the AS_PATH attribute),
+// and checking that the autonomous system number of the local system does not appear in the AS path.
+// Operations of a BGP speaker that is configured to accept routes with its own autonomous system number in the AS path are outside the scope of this document.
+// It is critical that BGP speakers within an AS do not make conflicting decisions regarding route selection that would cause forwarding loops to occur.
+//
+// For each set of destinations for which a feasible route exists in the Adj-RIB-In, the local BGP speaker identifies the route that has:
+//   a) the highest degree of preference of any route to the same set of destinations, or
+//   b) is the only route to that destination, or
+//   c) is selected as a result of the Phase 2 tie breaking rules
+//
+// The local speaker SHALL then install that route in the Loc-RIB,
+// replacing any route to the same destination that is currently being held in the Loc-RIB.
+// When the new BGP route is installed in the Rouing Table,
+// care must be taken to ensure that existing routes to the same destination that are now considered invalid are removed from the Routing Table.
+// Wether the new BGP route replaces an existing non-BGP route in the Routing Table depends on the policy configured on the BGP speaker.
+//
+// The local speaker MUST determine the immediate next-hop address from the NEXT_HOP attribute of the selected route.
+// If either the immediate next-hop or the IGP cost to the NEXT_HOP (wherer the NEXT_HOP is resolved throudh an IGP route) changes, Phase 2 Route selection MUST be performed again.
+//
+// Notice that even though BGP routes do not have to be installed in the Routing Table with the immediate next-hos(s),
+// implementations MUST take care that, before any packets are forwarded along a BGP route,
+// its associated NEXT_HOP address is resolved to the immediate (directly connected) next-hop address, and that this address (or multiple addresses) is finally used for actual packet forwarding.
+func (p *peer) Select(path *Path, withdrawn bool) (*Path, error) {
+	if path.asPath.CheckLoop() {
+		return nil, fmt.Errorf("Peer_Select: detect AS loop")
+	}
+	if path.asPath.Contains(p.as) {
+		// return fmt.Errorf("Select: AS Path contains local AS number")
+		p.logInfo("AS_PATH contains local AS number")
+		return nil, nil
+	}
+	// Insert into Adj-Rib-In
+	if err := p.rib.In.Insert(path); err != nil {
+		return nil, fmt.Errorf("Peer_Select: %w", err)
+	}
+
+	reason, bestPath, err := p.Calculate(path.nlri, p.bestPathConfig)
+	if err != nil {
+		return nil, fmt.Errorf("Peer_Select: %w", err)
+	}
+	p.rib.In.mutex.RLock()
+	defer p.rib.In.mutex.RUnlock()
+	if bestPath.id != path.id {
+		return nil, nil
+	}
+	p.logInfo("Best path selected %s by reason %s", bestPath, reason)
+	bp := bestPath.DeepCopy()
+	return &bp, nil
+}
+
+// Route Dissemination
+// This function is invoked on completion of Select(), or when any of the following events occur:
+//   a) when routes in the Loc-RIB to local destinations have changed
+//   b) when locally generated routes learned by means outside of BGP have changed
+//   c) when a new BGP speaker connection has been established
+// This function is a separate process that completes when it has no further work to do.
+// This Routing Decision function is blocked from running while the Select() is in process.
+//
+// All routes in the Loc-RIB are processed into Adj-RIBs-OUT according to configured policy.
+// This policy MAY exclude a route in the Loc-RIB from being installed in a particular Adh-RIB-Out.
+// A route SHALL NOT be installed in the Adj-RIB-Out unless the destination, and NEXT_HOP described by this route,
+// may be forwarded appropriately by the Routing Table.
+// If a route in Loc-RIB is excluded from a particular Adj-RIB-Out, the previously advertised route in that Adj-RIB-Out MUST be
+// withdrawn from service by means of an UPDATE message.
+// Route aggregation and information reduction techniques may optionally be applied.
+//
+// When the updating of the Adj-RIB-Out and the Routing Table is complete, the local BGP speaker runs the update-Send process.
+func (p *peer) Disseminate(pathes []*Path, withdrawn bool) error {
+	// synchronize adj-rib-out with loc-rib
+	// create path attributes for each path
+	// call external update process
+	filteredPathes := make([]*Path, 0, len(pathes))
+	for _, path := range pathes {
+		// no filter
+		filteredPathes = append(filteredPathes, path)
+	}
+	for _, path := range filteredPathes {
+		outPath, err := p.generateOutPath(path)
+		if err != nil {
+			return fmt.Errorf("Dissemintate: gnerate outgoing path: %w", err)
+		}
+		if err := p.rib.Out.Insert(outPath); err != nil {
+			return fmt.Errorf("Disseminate: %w", err)
+		}
+	}
+	_, err := p.buildUpdateMessage(filteredPathes)
+	if err != nil {
+		return fmt.Errorf("Disseminate: %w", err)
 	}
 	return nil
 }
