@@ -3,6 +3,7 @@ package bgp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
@@ -34,42 +35,13 @@ type Bgp struct {
 	adjRibIn     *AdjRibIn
 	networks     []*net.IPNet
 	requestQueue chan *Request
+	config       *BgpConfig
 	logger       log.Logger
 	signalCh     chan os.Signal
 }
 
-type state uint8
-
-const (
-	// Idle state:
-	// In this state BGP refuses all incoming BGP connections.
-	// No resources are allocated to the peer.
-	// In response to the Start event, the local system initialized all BGP resources.
-	IDLE         state = iota
-	CONNECT      state = iota
-	ACTIVE       state = iota
-	OPEN_SENT    state = iota
-	OPEN_CONFIRM state = iota
-	ESTABLISHED  state = iota
-)
-
-func (s state) String() string {
-	switch s {
-	case IDLE:
-		return "IDLE"
-	case CONNECT:
-		return "CONNECT"
-	case ACTIVE:
-		return "ACTIVE"
-	case OPEN_SENT:
-		return "OPEN_SENT"
-	case OPEN_CONFIRM:
-		return "OPEN_CONFIRM"
-	case ESTABLISHED:
-		return "ESTABLISHED"
-	default:
-		return "Unknown"
-	}
+type BgpConfig struct {
+	bestPathConfig *BestPathConfig
 }
 
 var (
@@ -227,6 +199,10 @@ func (b *Bgp) requestHandle(ctx context.Context, req *Request) error {
 			return err
 		}
 	case "network":
+		if len(req.Args) < 1 {
+			return ErrInvalidBgpApiArguments
+		}
+
 	default:
 		return ErrUnknownBgpApiRequest
 	}
@@ -277,4 +253,24 @@ func (b *Bgp) pollRib(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func (b *Bgp) originateRoutes(networks []*net.IPNet) error {
+	pathes := make([]*Path, len(networks))
+	for _, network := range networks {
+		path, err := CreateLocalPath(network.String(), b.as)
+		if err != nil {
+			return fmt.Errorf("Bgp_originateRoutes: %w", err)
+		}
+		selected, err := b.adjRibIn.Select(b.as, path, false, b.config.bestPathConfig)
+		if err != nil {
+			return fmt.Errorf("Bgp_originateRoutes: %w", err)
+		}
+		if selected == nil {
+			continue
+		}
+		pathes = append(pathes, selected)
+	}
+
+	return nil
 }

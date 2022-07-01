@@ -113,12 +113,6 @@ import (
 
 type peer struct {
 	*peerInfo
-	// neighbor       *neighbor
-	// addr           net.IP
-	// port           int
-	// link           netlink.Link
-	// as             int
-	// routerId       net.IP
 	locRib         *LocRib // reference of bgp.rib. This field is called by every peers. When handling this, we must get lock.
 	rib            *AdjRib
 	pib            any // Policy Information Base
@@ -126,8 +120,8 @@ type peer struct {
 	capabilities   []Capability
 	conn           *net.TCPConn
 	connCh         chan *net.TCPConn
-	state          state
 	eventQueue     chan event
+	requestQueue   chan any
 	tx             chan *Packet
 	rx             chan *Packet
 	logger         log.Logger
@@ -136,6 +130,8 @@ type peer struct {
 	holdTimer      *timer
 	initialized    bool
 	listenerOpen   bool
+
+	fsm            FSM
 	bestPathConfig *BestPathConfig
 }
 
@@ -193,8 +189,9 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 		rib:            adjRib,
 		holdTime:       DEFAULT_HOLD_TIME_INTERVAL,
 		capabilities:   defaultCaps(),
-		state:          IDLE,
+		fsm:            newFSM(),
 		eventQueue:     make(chan event, 128),
+		requestQueue:   make(chan any, 128),
 		tx:             make(chan *Packet, 128),
 		rx:             make(chan *Packet, 128),
 		connCh:         make(chan *net.TCPConn, 1),
@@ -208,15 +205,15 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 }
 
 func (p *peer) logInfo(format string, v ...any) {
-	p.logger.Infof("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.state, fmt.Sprintf(format, v...))
+	p.logger.Infof("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
 }
 
 func (p *peer) logWarn(format string, v ...any) {
-	p.logger.Warnf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.state, fmt.Sprintf(format, v...))
+	p.logger.Warnf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
 }
 
 func (p *peer) logErr(format string, v ...any) {
-	p.logger.Errorf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.state, fmt.Sprintf(format, v...))
+	p.logger.Errorf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
 }
 
 func (p *peer) poll(ctx context.Context) {
@@ -427,163 +424,15 @@ func (p *peer) notifyError(d []byte, err *ErrorCode) error {
 	return fmt.Errorf("notify: %w", err)
 }
 
-func (p *peer) changeState(et eventType) error {
-	old := p.state
-	switch p.state {
-	case IDLE:
-		if et == event_type_bgp_start {
-			p.state = CONNECT
-		}
-	case CONNECT:
-		switch et {
-		case event_type_bgp_start, event_type_conn_retry_timer_expired:
-			// stay
-		case event_type_bgp_trans_conn_open_failed:
-			p.state = ACTIVE
-		case event_type_bgp_trans_conn_open:
-			p.state = OPEN_SENT
-		default:
-			p.state = IDLE
-		}
-	case ACTIVE:
-		switch et {
-		case event_type_bgp_start, event_type_bgp_trans_conn_open_failed:
-			// stay
-		case event_type_bgp_trans_conn_open:
-			p.state = OPEN_SENT
-		case event_type_conn_retry_timer_expired:
-			p.state = CONNECT
-		default:
-			p.state = IDLE
-		}
-	case OPEN_SENT:
-		switch et {
-		case event_type_bgp_start:
-			// stay
-		case event_type_bgp_trans_conn_closed:
-			p.state = ACTIVE
-		case event_type_recv_open_msg:
-			// IDLE or OPEN_CONFIRM
-			p.state = OPEN_CONFIRM
-		default:
-			p.state = IDLE
-		}
-	case OPEN_CONFIRM:
-		switch et {
-		case event_type_bgp_start, event_type_keepalive_timer_expired:
-			// stay
-		case event_type_recv_keepalive_msg:
-			p.state = ESTABLISHED
-		default:
-			p.state = IDLE
-		}
-	case ESTABLISHED:
-		switch et {
-		case event_type_bgp_start, event_type_keepalive_timer_expired,
-			event_type_recv_keepalive_msg:
-			// stay
-		case event_type_recv_update_msg:
-			// IDLE or stay
-		default:
-			p.state = IDLE
-		}
-	default:
-		return p.notifyError(nil, ErrFiniteStateMachineError)
-	}
-	if old != p.state {
-		p.logInfo("%s -> %s", old, p.state)
-	}
-	return nil
-}
-
-func (p *peer) moveState(state state) error {
-	old := p.state
-	switch p.state {
-	case IDLE:
-		if state == IDLE || state == CONNECT {
-			p.state = state
-		}
-	case CONNECT, ACTIVE:
-		if state == IDLE || state == CONNECT || state == ACTIVE || state == OPEN_SENT {
-			p.state = state
-		}
-	case OPEN_SENT:
-		if state == IDLE || state == ACTIVE || state == OPEN_SENT || state == OPEN_CONFIRM {
-			p.state = state
-		}
-	case OPEN_CONFIRM:
-		if state == IDLE || state == OPEN_CONFIRM || state == ESTABLISHED {
-			p.state = state
-		}
-	case ESTABLISHED:
-		if state == IDLE || state == ESTABLISHED {
-			p.state = state
-		}
-	default:
-		return ErrInvalidBgpState
-	}
-	if old != p.state {
-		p.logInfo("%s -> %s", old, p.state)
-	}
-	return nil
-}
-
-func (p *peer) isValidEvent(et eventType) (bool, error) {
-	switch p.state {
-	case IDLE:
-		if et == event_type_bgp_start {
-			return true, nil
-		}
-		return false, nil
-	case CONNECT:
-		switch et {
-		case event_type_bgp_start, event_type_conn_retry_timer_expired:
-			return false, nil
-		default:
-			return true, nil
-		}
-	case ACTIVE:
-		switch et {
-		case event_type_bgp_start, event_type_bgp_trans_conn_open_failed:
-			return false, nil
-		default:
-			return true, nil
-		}
-	case OPEN_SENT:
-		switch et {
-		case event_type_bgp_start:
-			return false, nil
-		default:
-			return true, nil
-		}
-	case OPEN_CONFIRM:
-		switch et {
-		case event_type_bgp_start, event_type_keepalive_timer_expired:
-			return false, nil
-		default:
-			return true, nil
-		}
-	case ESTABLISHED:
-		switch et {
-		case event_type_bgp_start, event_type_keepalive_timer_expired, event_type_recv_update_msg:
-			return true, nil
-		default:
-			return false, nil
-		}
-	default:
-		return false, ErrInvalidBgpState
-	}
-}
-
 func (p *peer) startEvent() error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case IDLE:
 		if err := p.init(); err != nil {
 			return fmt.Errorf("startEvent: %w", err)
 		}
 		p.enqueueEvent(&bgpTransConnOpen{})
 	}
-	return p.changeState(event_type_bgp_start)
+	return p.fsm.Change(event_type_bgp_start)
 }
 
 func (p *peer) stopEvent() error {
@@ -591,7 +440,7 @@ func (p *peer) stopEvent() error {
 }
 
 func (p *peer) transOpenEvent(ctx context.Context) error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case CONNECT:
 		conn, err := net.DialTCP("tcp", &net.TCPAddr{IP: p.addr}, &net.TCPAddr{IP: p.neighbor.addr, Port: PORT})
 		if err != nil {
@@ -618,7 +467,7 @@ func (p *peer) transOpenEvent(ctx context.Context) error {
 				}()
 			}
 			// move to ACTIVE
-			return p.moveState(ACTIVE)
+			return p.fsm.SetState(ACTIVE)
 		} else {
 			// success to connect
 			p.finishInitiate(conn)
@@ -660,11 +509,11 @@ func (p *peer) transOpenEvent(ctx context.Context) error {
 	default:
 		return fmt.Errorf("transOpenEvent: %w", ErrInvalidEventInCurrentState)
 	}
-	return p.changeState(event_type_bgp_trans_conn_open)
+	return p.fsm.Change(event_type_bgp_trans_conn_open)
 }
 
 func (p *peer) transClosedEvent() error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case CONNECT:
 		p.connRetryTimer.restart()
 	case ACTIVE:
@@ -672,11 +521,11 @@ func (p *peer) transClosedEvent() error {
 	default:
 		return fmt.Errorf("transClosed: %w", ErrInvalidEventInCurrentState)
 	}
-	return p.changeState(event_type_bgp_trans_conn_closed)
+	return p.fsm.Change(event_type_bgp_trans_conn_closed)
 }
 
 func (p *peer) transOpenFailedEvent() error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case CONNECT:
 		p.connRetryTimer.restart()
 	case ACTIVE:
@@ -685,36 +534,36 @@ func (p *peer) transOpenFailedEvent() error {
 		}
 		p.connRetryTimer.restart()
 	}
-	return p.changeState(event_type_bgp_trans_conn_open_failed)
+	return p.fsm.Change(event_type_bgp_trans_conn_open_failed)
 }
 
 func (p *peer) transFatalErrorEvent() error {
 	if p.conn != nil {
 		p.conn.Close()
 	}
-	return p.changeState(event_type_bgp_trans_fatal_error)
+	return p.fsm.Change(event_type_bgp_trans_fatal_error)
 }
 
 func (p *peer) connRetryTimerExpiredEvent() error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case CONNECT, ACTIVE:
 		p.connRetryTimer.restart()
 		p.enqueueEvent(&bgpTransConnOpen{})
 	default:
 		return fmt.Errorf("connRetryTimeExpired: %w", ErrInvalidEventInCurrentState)
 	}
-	return p.changeState(event_type_conn_retry_timer_expired)
+	return p.fsm.Change(event_type_conn_retry_timer_expired)
 }
 
 func (p *peer) holdTimerExpiredEvent() error {
 	builder := Builder(NOTIFICATION)
 	builder.ErrorCode(&ErrorCode{Code: HOLD_TIMER_EXPIRED, Subcode: 0})
 	p.tx <- builder.Packet()
-	return p.changeState(event_type_hold_timer_expired)
+	return p.fsm.Change(event_type_hold_timer_expired)
 }
 
 func (p *peer) keepaliveTimerExpiredEvent() error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case OPEN_CONFIRM, ESTABLISHED:
 		// send KEEPALIVE
 		p.keepAliveTimer.restart()
@@ -726,7 +575,7 @@ func (p *peer) keepaliveTimerExpiredEvent() error {
 }
 
 func (p *peer) recvOpenMsgEvent(evt event) error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case OPEN_SENT:
 		msg := evt.(*recvOpenMsg)
 		op := GetMessage[*Open](msg.msg.Message)
@@ -743,7 +592,7 @@ func (p *peer) recvOpenMsgEvent(evt event) error {
 		builder := Builder(KEEPALIVE)
 		p.tx <- builder.Packet()
 		// move to ESTABLISHED
-		if err := p.changeState(event_type_recv_open_msg); err != nil {
+		if err := p.fsm.Change(event_type_recv_open_msg); err != nil {
 			return err
 		}
 		// enqueue trigger disseminate
@@ -757,11 +606,11 @@ func (p *peer) recvOpenMsgEvent(evt event) error {
 		builder.ErrorCode(ErrFiniteStateMachineError)
 		p.tx <- builder.Packet()
 	}
-	return p.changeState(event_type_recv_open_msg)
+	return p.fsm.Change(event_type_recv_open_msg)
 }
 
 func (p *peer) recvKeepAliveMsgEvent(evt event) error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case OPEN_CONFIRM:
 		// Complete initialization
 		// Restart hold timer
@@ -771,7 +620,7 @@ func (p *peer) recvKeepAliveMsgEvent(evt event) error {
 	default:
 
 	}
-	return p.changeState(event_type_recv_keepalive_msg)
+	return p.fsm.Change(event_type_recv_keepalive_msg)
 }
 
 func (p *peer) recvUpdateMsgEvent(evt event) error {
@@ -786,7 +635,7 @@ func (p *peer) recvUpdateMsgEvent(evt event) error {
 	if err := p.handleUpdateMsg(update); err != nil {
 		return err
 	}
-	return p.changeState(event_type_recv_update_msg)
+	return p.fsm.Change(event_type_recv_update_msg)
 }
 
 func (p *peer) recvNotificationMsgEvent(evt event) error {
@@ -794,18 +643,18 @@ func (p *peer) recvNotificationMsgEvent(evt event) error {
 	p.conn.Close()
 	p.logErr("%s", GetMessage[*Notification](msg.msg.Message).ErrorCode)
 	p.release()
-	return p.changeState(event_type_recv_notification_msg)
+	return p.fsm.Change(event_type_recv_notification_msg)
 }
 
 func (p *peer) triggerDecisionProcessEvent(evt event) error {
-	if p.state != ESTABLISHED {
+	if p.fsm.GetState() != ESTABLISHED {
 		return nil
 	}
 	de := evt.(*triggerDecisionProcess)
 	errs := []error{}
 	updatedPathes := make([]*Path, 0, len(de.pathes))
 	for _, path := range de.pathes {
-		selected, err := p.Select(path, de.withdrawn)
+		selected, err := p.rib.In.Select(p.as, path, de.withdrawn, p.bestPathConfig)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -827,7 +676,7 @@ func (p *peer) triggerDecisionProcessEvent(evt event) error {
 }
 
 func (p *peer) triggerDisseminationEvent(evt event) error {
-	if p.state != ESTABLISHED {
+	if p.fsm.GetState() != ESTABLISHED {
 		return nil
 	}
 	de := evt.(*triggerDissemination)

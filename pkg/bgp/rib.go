@@ -102,6 +102,50 @@ func (r *AdjRibIn) Drop(prefix *Prefix, id int, next net.IP, asSequence []uint16
 	return nil
 }
 
+func (r *AdjRibIn) Calculate(nlri *Prefix, bestPathConfig *BestPathConfig) (BestPathSelectionReason, *Path, error) {
+	pathes := r.Lookup(nlri)
+	if pathes == nil {
+		return REASON_INVALID, nil, fmt.Errorf("Peer_Calculate: path is not found for %s", nlri)
+	}
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	res, reason := sortPathes(pathes)
+	if len(res) == 0 {
+		return REASON_INVALID, nil, fmt.Errorf("Peer_Calculate: path is not found for %s", nlri)
+	}
+	// mark best
+	res[0].best = true
+	for i := 1; i < len(res); i++ {
+		res[i].best = false
+	}
+	return reason, res[0], nil
+}
+
+func (r *AdjRibIn) Select(as int, path *Path, withdrawn bool, bestPathConfig *BestPathConfig) (*Path, error) {
+	if path.asPath.Contains(as) {
+		return nil, nil
+	}
+	if path.asPath.CheckLoop() {
+		return nil, fmt.Errorf("AdjRibIn_Select: detect AS loop")
+	}
+	// Insert into Adj-Rib-In
+	if err := r.Insert(path); err != nil {
+		return nil, fmt.Errorf("AdjRibIn_Select: %w", err)
+	}
+
+	_, bestPath, err := r.Calculate(path.nlri, bestPathConfig)
+	if err != nil {
+		return nil, fmt.Errorf("AdjRibIn_Select: %w", err)
+	}
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	if bestPath.id != path.id {
+		return nil, nil
+	}
+	bp := bestPath.DeepCopy()
+	return &bp, nil
+}
+
 type AdjRibOut struct {
 	mutex *sync.RWMutex
 	table map[string]*Path
