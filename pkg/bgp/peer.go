@@ -742,6 +742,12 @@ func (p *peer) recvOpenMsgEvent(evt event) error {
 		p.keepAliveTimer.start()
 		builder := Builder(KEEPALIVE)
 		p.tx <- builder.Packet()
+		// move to ESTABLISHED
+		if err := p.changeState(event_type_recv_open_msg); err != nil {
+			return err
+		}
+		// enqueue trigger disseminate
+		p.enqueueEvent(&triggerDissemination{})
 	default:
 		// Close transport connection
 		// Release resources

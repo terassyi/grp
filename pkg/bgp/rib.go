@@ -198,6 +198,10 @@ func (l *LocRib) Insert(path *Path) error {
 	l.mutex.Lock()
 	l.table[path.nlri.String()] = path
 	l.mutex.Unlock()
+	if path.local {
+		// if the given path is originated by local, don't insert into route table
+		return nil
+	}
 	routes, err := l.isntallToRib(path.link, path.nlri.Network(), path.nextHop)
 	if err != nil {
 		return fmt.Errorf("LocRib_InsertPath: %w", err)
