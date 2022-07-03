@@ -168,9 +168,10 @@ func TestPeer_generateOutPath(t *testing.T) {
 				local: true,
 			},
 			outPath: &Path{
-				id:    1,
-				info:  p.peerInfo,
-				local: true,
+				id:      1,
+				info:    p.peerInfo,
+				local:   true,
+				nextHop: p.addr,
 			},
 			wantErr: false,
 		},
@@ -271,7 +272,7 @@ func TestPeer_buildUpdateMessage(t *testing.T) {
 			update: &Update{
 				WithdrawnRoutesLen: 0,
 				WithdrawnRoutes:    []*Prefix{},
-				TotalPathAttrLen:   25,
+				TotalPathAttrLen:   26,
 				PathAttrs: []PathAttr{
 					CreateOrigin(ORIGIN_IGP),
 					CreateASPath([]uint16{100}),
@@ -282,7 +283,7 @@ func TestPeer_buildUpdateMessage(t *testing.T) {
 			},
 		},
 		{
-			name: "CASE 2",
+			name: "CASE 3",
 			pathes: []*Path{
 				{
 					as:             100,
@@ -306,7 +307,7 @@ func TestPeer_buildUpdateMessage(t *testing.T) {
 			update: &Update{
 				WithdrawnRoutesLen: 0,
 				WithdrawnRoutes:    []*Prefix{},
-				TotalPathAttrLen:   27,
+				TotalPathAttrLen:   28,
 				PathAttrs: []PathAttr{
 					CreateOrigin(ORIGIN_IGP),
 					CreateASPath([]uint16{100, 200}),

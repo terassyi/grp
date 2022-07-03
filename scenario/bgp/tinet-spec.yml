@@ -127,3 +127,4 @@ node_configs:
 test:
   - cmds:
       - cmd: docker exec C0 ping -c2 10.4.0.2
+      - cmd: docker exec C1 ping -c2 10.3.0.2
