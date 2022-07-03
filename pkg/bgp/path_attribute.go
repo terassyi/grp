@@ -20,6 +20,7 @@ type PathAttr interface {
 	IsTransitive() bool
 	IsOptional() bool
 	IsRecognized() bool
+	IsExtended() bool
 	SetPartial()
 	Equal(PathAttr) bool
 	Decode() ([]byte, error)
@@ -144,6 +145,10 @@ func (p *pathAttr) IsTransitive() bool {
 
 func (p *pathAttr) IsOptional() bool {
 	return (p.flags & PATH_ATTR_FLAG_OPTIONAL) == PATH_ATTR_FLAG_OPTIONAL
+}
+
+func (p *pathAttr) IsExtended() bool {
+	return (p.flags & PATH_ATTR_FLAG_EXTENDED) == PATH_ATTR_FLAG_EXTENDED
 }
 
 func (p *pathAttr) SetPartial() {

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -113,12 +114,6 @@ import (
 
 type peer struct {
 	*peerInfo
-	// neighbor       *neighbor
-	// addr           net.IP
-	// port           int
-	// link           netlink.Link
-	// as             int
-	// routerId       net.IP
 	locRib         *LocRib // reference of bgp.rib. This field is called by every peers. When handling this, we must get lock.
 	rib            *AdjRib
 	pib            any // Policy Information Base
@@ -126,8 +121,8 @@ type peer struct {
 	capabilities   []Capability
 	conn           *net.TCPConn
 	connCh         chan *net.TCPConn
-	state          state
 	eventQueue     chan event
+	requestQueue   chan any
 	tx             chan *Packet
 	rx             chan *Packet
 	logger         log.Logger
@@ -136,6 +131,8 @@ type peer struct {
 	holdTimer      *timer
 	initialized    bool
 	listenerOpen   bool
+
+	fsm            FSM
 	bestPathConfig *BestPathConfig
 }
 
@@ -193,8 +190,9 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 		rib:            adjRib,
 		holdTime:       DEFAULT_HOLD_TIME_INTERVAL,
 		capabilities:   defaultCaps(),
-		state:          IDLE,
+		fsm:            newFSM(),
 		eventQueue:     make(chan event, 128),
+		requestQueue:   make(chan any, 128),
 		tx:             make(chan *Packet, 128),
 		rx:             make(chan *Packet, 128),
 		connCh:         make(chan *net.TCPConn, 1),
@@ -208,15 +206,15 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 }
 
 func (p *peer) logInfo(format string, v ...any) {
-	p.logger.Infof("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.state, fmt.Sprintf(format, v...))
+	p.logger.Infof("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
 }
 
 func (p *peer) logWarn(format string, v ...any) {
-	p.logger.Warnf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.state, fmt.Sprintf(format, v...))
+	p.logger.Warnf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
 }
 
 func (p *peer) logErr(format string, v ...any) {
-	p.logger.Errorf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.state, fmt.Sprintf(format, v...))
+	p.logger.Errorf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
 }
 
 func (p *peer) poll(ctx context.Context) {
@@ -427,163 +425,15 @@ func (p *peer) notifyError(d []byte, err *ErrorCode) error {
 	return fmt.Errorf("notify: %w", err)
 }
 
-func (p *peer) changeState(et eventType) error {
-	old := p.state
-	switch p.state {
-	case IDLE:
-		if et == event_type_bgp_start {
-			p.state = CONNECT
-		}
-	case CONNECT:
-		switch et {
-		case event_type_bgp_start, event_type_conn_retry_timer_expired:
-			// stay
-		case event_type_bgp_trans_conn_open_failed:
-			p.state = ACTIVE
-		case event_type_bgp_trans_conn_open:
-			p.state = OPEN_SENT
-		default:
-			p.state = IDLE
-		}
-	case ACTIVE:
-		switch et {
-		case event_type_bgp_start, event_type_bgp_trans_conn_open_failed:
-			// stay
-		case event_type_bgp_trans_conn_open:
-			p.state = OPEN_SENT
-		case event_type_conn_retry_timer_expired:
-			p.state = CONNECT
-		default:
-			p.state = IDLE
-		}
-	case OPEN_SENT:
-		switch et {
-		case event_type_bgp_start:
-			// stay
-		case event_type_bgp_trans_conn_closed:
-			p.state = ACTIVE
-		case event_type_recv_open_msg:
-			// IDLE or OPEN_CONFIRM
-			p.state = OPEN_CONFIRM
-		default:
-			p.state = IDLE
-		}
-	case OPEN_CONFIRM:
-		switch et {
-		case event_type_bgp_start, event_type_keepalive_timer_expired:
-			// stay
-		case event_type_recv_keepalive_msg:
-			p.state = ESTABLISHED
-		default:
-			p.state = IDLE
-		}
-	case ESTABLISHED:
-		switch et {
-		case event_type_bgp_start, event_type_keepalive_timer_expired,
-			event_type_recv_keepalive_msg:
-			// stay
-		case event_type_recv_update_msg:
-			// IDLE or stay
-		default:
-			p.state = IDLE
-		}
-	default:
-		return p.notifyError(nil, ErrFiniteStateMachineError)
-	}
-	if old != p.state {
-		p.logInfo("%s -> %s", old, p.state)
-	}
-	return nil
-}
-
-func (p *peer) moveState(state state) error {
-	old := p.state
-	switch p.state {
-	case IDLE:
-		if state == IDLE || state == CONNECT {
-			p.state = state
-		}
-	case CONNECT, ACTIVE:
-		if state == IDLE || state == CONNECT || state == ACTIVE || state == OPEN_SENT {
-			p.state = state
-		}
-	case OPEN_SENT:
-		if state == IDLE || state == ACTIVE || state == OPEN_SENT || state == OPEN_CONFIRM {
-			p.state = state
-		}
-	case OPEN_CONFIRM:
-		if state == IDLE || state == OPEN_CONFIRM || state == ESTABLISHED {
-			p.state = state
-		}
-	case ESTABLISHED:
-		if state == IDLE || state == ESTABLISHED {
-			p.state = state
-		}
-	default:
-		return ErrInvalidBgpState
-	}
-	if old != p.state {
-		p.logInfo("%s -> %s", old, p.state)
-	}
-	return nil
-}
-
-func (p *peer) isValidEvent(et eventType) (bool, error) {
-	switch p.state {
-	case IDLE:
-		if et == event_type_bgp_start {
-			return true, nil
-		}
-		return false, nil
-	case CONNECT:
-		switch et {
-		case event_type_bgp_start, event_type_conn_retry_timer_expired:
-			return false, nil
-		default:
-			return true, nil
-		}
-	case ACTIVE:
-		switch et {
-		case event_type_bgp_start, event_type_bgp_trans_conn_open_failed:
-			return false, nil
-		default:
-			return true, nil
-		}
-	case OPEN_SENT:
-		switch et {
-		case event_type_bgp_start:
-			return false, nil
-		default:
-			return true, nil
-		}
-	case OPEN_CONFIRM:
-		switch et {
-		case event_type_bgp_start, event_type_keepalive_timer_expired:
-			return false, nil
-		default:
-			return true, nil
-		}
-	case ESTABLISHED:
-		switch et {
-		case event_type_bgp_start, event_type_keepalive_timer_expired, event_type_recv_update_msg:
-			return true, nil
-		default:
-			return false, nil
-		}
-	default:
-		return false, ErrInvalidBgpState
-	}
-}
-
 func (p *peer) startEvent() error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case IDLE:
 		if err := p.init(); err != nil {
 			return fmt.Errorf("startEvent: %w", err)
 		}
 		p.enqueueEvent(&bgpTransConnOpen{})
 	}
-	return p.changeState(event_type_bgp_start)
+	return p.fsm.Change(event_type_bgp_start)
 }
 
 func (p *peer) stopEvent() error {
@@ -591,7 +441,7 @@ func (p *peer) stopEvent() error {
 }
 
 func (p *peer) transOpenEvent(ctx context.Context) error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case CONNECT:
 		conn, err := net.DialTCP("tcp", &net.TCPAddr{IP: p.addr}, &net.TCPAddr{IP: p.neighbor.addr, Port: PORT})
 		if err != nil {
@@ -618,7 +468,7 @@ func (p *peer) transOpenEvent(ctx context.Context) error {
 				}()
 			}
 			// move to ACTIVE
-			return p.moveState(ACTIVE)
+			return p.fsm.SetState(ACTIVE)
 		} else {
 			// success to connect
 			p.finishInitiate(conn)
@@ -660,11 +510,11 @@ func (p *peer) transOpenEvent(ctx context.Context) error {
 	default:
 		return fmt.Errorf("transOpenEvent: %w", ErrInvalidEventInCurrentState)
 	}
-	return p.changeState(event_type_bgp_trans_conn_open)
+	return p.fsm.Change(event_type_bgp_trans_conn_open)
 }
 
 func (p *peer) transClosedEvent() error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case CONNECT:
 		p.connRetryTimer.restart()
 	case ACTIVE:
@@ -672,11 +522,11 @@ func (p *peer) transClosedEvent() error {
 	default:
 		return fmt.Errorf("transClosed: %w", ErrInvalidEventInCurrentState)
 	}
-	return p.changeState(event_type_bgp_trans_conn_closed)
+	return p.fsm.Change(event_type_bgp_trans_conn_closed)
 }
 
 func (p *peer) transOpenFailedEvent() error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case CONNECT:
 		p.connRetryTimer.restart()
 	case ACTIVE:
@@ -685,36 +535,36 @@ func (p *peer) transOpenFailedEvent() error {
 		}
 		p.connRetryTimer.restart()
 	}
-	return p.changeState(event_type_bgp_trans_conn_open_failed)
+	return p.fsm.Change(event_type_bgp_trans_conn_open_failed)
 }
 
 func (p *peer) transFatalErrorEvent() error {
 	if p.conn != nil {
 		p.conn.Close()
 	}
-	return p.changeState(event_type_bgp_trans_fatal_error)
+	return p.fsm.Change(event_type_bgp_trans_fatal_error)
 }
 
 func (p *peer) connRetryTimerExpiredEvent() error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case CONNECT, ACTIVE:
 		p.connRetryTimer.restart()
 		p.enqueueEvent(&bgpTransConnOpen{})
 	default:
 		return fmt.Errorf("connRetryTimeExpired: %w", ErrInvalidEventInCurrentState)
 	}
-	return p.changeState(event_type_conn_retry_timer_expired)
+	return p.fsm.Change(event_type_conn_retry_timer_expired)
 }
 
 func (p *peer) holdTimerExpiredEvent() error {
 	builder := Builder(NOTIFICATION)
 	builder.ErrorCode(&ErrorCode{Code: HOLD_TIMER_EXPIRED, Subcode: 0})
 	p.tx <- builder.Packet()
-	return p.changeState(event_type_hold_timer_expired)
+	return p.fsm.Change(event_type_hold_timer_expired)
 }
 
 func (p *peer) keepaliveTimerExpiredEvent() error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case OPEN_CONFIRM, ESTABLISHED:
 		// send KEEPALIVE
 		p.keepAliveTimer.restart()
@@ -726,7 +576,7 @@ func (p *peer) keepaliveTimerExpiredEvent() error {
 }
 
 func (p *peer) recvOpenMsgEvent(evt event) error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case OPEN_SENT:
 		msg := evt.(*recvOpenMsg)
 		op := GetMessage[*Open](msg.msg.Message)
@@ -751,21 +601,30 @@ func (p *peer) recvOpenMsgEvent(evt event) error {
 		builder.ErrorCode(ErrFiniteStateMachineError)
 		p.tx <- builder.Packet()
 	}
-	return p.changeState(event_type_recv_open_msg)
+	return p.fsm.Change(event_type_recv_open_msg)
 }
 
 func (p *peer) recvKeepAliveMsgEvent(evt event) error {
-	switch p.state {
+	switch p.fsm.GetState() {
 	case OPEN_CONFIRM:
 		// Complete initialization
 		// Restart hold timer
 		p.holdTimer.restart()
+		// move to ESTABLISHED
+		if err := p.fsm.Change(evt.typ()); err != nil {
+			return err
+		}
+		// enqueue trigger disseminate
+		if err := p.initialUpdate(); err != nil {
+			return err
+		}
+		return nil
 	case ESTABLISHED:
 		p.holdTimer.restart()
 	default:
 
 	}
-	return p.changeState(event_type_recv_keepalive_msg)
+	return p.fsm.Change(event_type_recv_keepalive_msg)
 }
 
 func (p *peer) recvUpdateMsgEvent(evt event) error {
@@ -780,7 +639,7 @@ func (p *peer) recvUpdateMsgEvent(evt event) error {
 	if err := p.handleUpdateMsg(update); err != nil {
 		return err
 	}
-	return p.changeState(event_type_recv_update_msg)
+	return p.fsm.Change(event_type_recv_update_msg)
 }
 
 func (p *peer) recvNotificationMsgEvent(evt event) error {
@@ -788,15 +647,18 @@ func (p *peer) recvNotificationMsgEvent(evt event) error {
 	p.conn.Close()
 	p.logErr("%s", GetMessage[*Notification](msg.msg.Message).ErrorCode)
 	p.release()
-	return p.changeState(event_type_recv_notification_msg)
+	return p.fsm.Change(event_type_recv_notification_msg)
 }
 
 func (p *peer) triggerDecisionProcessEvent(evt event) error {
+	if p.fsm.GetState() != ESTABLISHED {
+		return nil
+	}
 	de := evt.(*triggerDecisionProcess)
 	errs := []error{}
 	updatedPathes := make([]*Path, 0, len(de.pathes))
 	for _, path := range de.pathes {
-		selected, err := p.Select(path, de.withdrawn)
+		selected, err := p.rib.In.Select(p.as, path, de.withdrawn, p.bestPathConfig)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -813,13 +675,17 @@ func (p *peer) triggerDecisionProcessEvent(evt event) error {
 		}
 		return fmt.Errorf("Decision process: %s", errMsg)
 	}
-	p.locRib.enqueue(updatedPathes)
+	if len(updatedPathes) > 0 {
+		p.locRib.enqueue(updatedPathes)
+	}
 	return nil
 }
 
 func (p *peer) triggerDisseminationEvent(evt event) error {
+	if p.fsm.GetState() != ESTABLISHED {
+		return nil
+	}
 	de := evt.(*triggerDissemination)
-	p.logInfo("dissemination start")
 	return p.Disseminate(de.pathes, de.withdrawn)
 }
 
@@ -950,6 +816,8 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 
 	// If the UPDATE message contains a feasible route, the Adj-RIB-In will be updated with this route as follows:
 	adjRibInUpdate := false
+	rand.Seed(time.Now().UnixNano())
+	groupId := rand.Int()
 	for _, feasibleRoute := range msg.NetworkLayerReachabilityInfo {
 		// handle network layer reachability information
 		p.logInfo("feasible route %s", feasibleRoute)
@@ -959,10 +827,9 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 
 		// Otherwise, if the Adj-RIB-In has no route with NLRI identical to the new route,
 		// the new route shall be placed in the Adj-RIB-In.
-		path := newPath(p.peerInfo, p.neighbor.as, next, origin, asPath, med, localPref, feasibleRoute, propagateAttrs, p.link)
+		path := newPath(p.peerInfo, groupId, p.neighbor.as, next, origin, asPath, med, localPref, feasibleRoute, propagateAttrs, p.link)
 		feasiblePathes = append(feasiblePathes, path)
 		adjRibInUpdate = true
-		// p.logInfo("Insert into Adg-RIB-In: %s", path)
 		// Once the BGP speaker updates the Adj-RIB-In, the speaker shall run its Decision Process.
 	}
 	// trigger decision process event
@@ -974,8 +841,9 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 
 func (p *peer) generateOutPath(path *Path) (*Path, error) {
 	outPath := path.DeepCopy()
-	outPath.info = p.peerInfo
+	(&outPath).info = p.peerInfo
 	if path.local {
+		(&outPath).nextHop = p.addr
 		return &outPath, nil
 	}
 	// Nexthop: If path.nexthop is same as neighbor address, use same next hop value
@@ -1015,116 +883,6 @@ func (p *peer) buildUpdateMessage(pathes []*Path) (*Packet, error) {
 	return builder.Packet(), nil
 }
 
-// The Decision Process selects routes for subsequent advertisement by applying the policies in the local Policy Information Base(PIB) to the routes stored in its Adj-RIB-In.
-// The output of the Decision Process is the set of routes that will be advertised to all peers;
-// the selected routes will be stored in the local speaker's Adj-RIB-Out.
-//
-// The selection process is formalized by defining a function that takes the attribute of a given route as an argument
-// and returns a non-negative integer denoting the degree of preference for the route.
-// The function that calculates the degree of preference for a given route shall not use as its inputs any of the following:
-// the existence of other routes, the non-existence of other routes,
-// or the path attributes of other routes.
-// Route selection then consists of individual application of the degree of preference function to each feasible route,
-// followed by the choice of the one with the highest degree of preference.
-
-// The Decision Process operates on routes contained in each Adj-RIB-In, and is responsible for:
-// - selection of routes to be advertised to BGP speakers located in the local speaker's autonomous system
-// - selection of routes to be advertised to BGP speakers located in neighboring autonomous systems
-// - route aggregation and route information reduction
-
-// Calculation of Degree of Preference
-// This decision function is invoked whenever the local BGP speaker receives, from a peer,
-// an UPDATE message that advertises a new route, a replacement route, or withdrawn routes.
-// This decision function is a separate process, which completes when it has no further work to do.
-// This decision function locks an Adj-RIB-In prior to operating on any route contained within it,
-// and unlocks it after operating on all new or unfeasible routes contained within it.
-// For each newly received or replacement feasible route, the local BGP speaker determines a degree of preference as follows:
-//    If the route is learned an internal peer, either the value of the LOCAL_PREF attribute is taken an the degree of preference,
-//    or the local system computes the degree of preference of the route based on preconfigured policy information.
-//    Note that the latter may result information of persistent routing loops.
-//
-//    If the route is learned from an external peer, then the local BGP speaker computes the degree of preference based on preconfigured policy information.
-//    If the return value indicates the route is ineligible, the route MAY NOT serve as an input to the next phase of route selection;
-//    otherwise, the return value MUST be used as the LOCAL_PREF value in any IBGP readvertisement.
-// TODO: implement bestpath selection
-func (p *peer) Calculate(nlri *Prefix, bestPathConfig *BestPathConfig) (BestPathSelectionReason, *Path, error) {
-	pathes := p.rib.In.Lookup(nlri)
-	if pathes == nil {
-		return REASON_INVALID, nil, fmt.Errorf("Peer_Calculate: path is not found for %s", nlri)
-	}
-	p.rib.In.mutex.Lock()
-	defer p.rib.In.mutex.Unlock()
-	res, reason := sortPathes(pathes)
-	if len(res) == 0 {
-		return REASON_INVALID, nil, fmt.Errorf("Peer_Calculate: path is not found for %s", nlri)
-	}
-	// mark best
-	res[0].best = true
-	for i := 1; i < len(res); i++ {
-		res[i].best = false
-	}
-	return reason, res[0], nil
-}
-
-// Route Selection
-// This function is invoked on completion of Calculate().
-// This function is a separate process, which completes when it has no further work to do.
-// This process considers all routes that are eligible in the Adj-RIB-In.
-// This function is blocked from running while the Phase 3 decision functions is in process.
-// This locks all Adj-RIB-In prior to commencing its function, and unlocks then on completion.
-// If the NEXT_HOP attribute of a BGP route depicts an address that is not resolvable,
-// or if it would become unresolvable if the route was installed in the routing table, the BGP route MUST be excluded from this function.
-// IF the AS_PATH attribute of a BGP route contians an AS loop, the BGP route should be excluded from this function.
-// AS loop detection is done by scanning the full AS path(as specified in the AS_PATH attribute),
-// and checking that the autonomous system number of the local system does not appear in the AS path.
-// Operations of a BGP speaker that is configured to accept routes with its own autonomous system number in the AS path are outside the scope of this document.
-// It is critical that BGP speakers within an AS do not make conflicting decisions regarding route selection that would cause forwarding loops to occur.
-//
-// For each set of destinations for which a feasible route exists in the Adj-RIB-In, the local BGP speaker identifies the route that has:
-//   a) the highest degree of preference of any route to the same set of destinations, or
-//   b) is the only route to that destination, or
-//   c) is selected as a result of the Phase 2 tie breaking rules
-//
-// The local speaker SHALL then install that route in the Loc-RIB,
-// replacing any route to the same destination that is currently being held in the Loc-RIB.
-// When the new BGP route is installed in the Rouing Table,
-// care must be taken to ensure that existing routes to the same destination that are now considered invalid are removed from the Routing Table.
-// Wether the new BGP route replaces an existing non-BGP route in the Routing Table depends on the policy configured on the BGP speaker.
-//
-// The local speaker MUST determine the immediate next-hop address from the NEXT_HOP attribute of the selected route.
-// If either the immediate next-hop or the IGP cost to the NEXT_HOP (wherer the NEXT_HOP is resolved throudh an IGP route) changes, Phase 2 Route selection MUST be performed again.
-//
-// Notice that even though BGP routes do not have to be installed in the Routing Table with the immediate next-hos(s),
-// implementations MUST take care that, before any packets are forwarded along a BGP route,
-// its associated NEXT_HOP address is resolved to the immediate (directly connected) next-hop address, and that this address (or multiple addresses) is finally used for actual packet forwarding.
-func (p *peer) Select(path *Path, withdrawn bool) (*Path, error) {
-	if path.asPath.CheckLoop() {
-		return nil, fmt.Errorf("Peer_Select: detect AS loop")
-	}
-	if path.asPath.Contains(p.as) {
-		// return fmt.Errorf("Select: AS Path contains local AS number")
-		p.logInfo("AS_PATH contains local AS number")
-		return nil, nil
-	}
-	// Insert into Adj-Rib-In
-	if err := p.rib.In.Insert(path); err != nil {
-		return nil, fmt.Errorf("Peer_Select: %w", err)
-	}
-
-	reason, bestPath, err := p.Calculate(path.nlri, p.bestPathConfig)
-	if err != nil {
-		return nil, fmt.Errorf("Peer_Select: %w", err)
-	}
-	p.rib.In.mutex.RLock()
-	defer p.rib.In.mutex.RUnlock()
-	if bestPath.id != path.id {
-		return nil, nil
-	}
-	p.logInfo("Best path selected %s by reason %s", bestPath, reason)
-	bp := bestPath.DeepCopy()
-	return &bp, nil
-}
-
 // Route Dissemination
 // This function is invoked on completion of Select(), or when any of the following events occur:
 //   a) when routes in the Loc-RIB to local destinations have changed
@@ -1147,6 +905,7 @@ func (p *peer) Disseminate(pathes []*Path, withdrawn bool) error {
 	// create path attributes for each path
 	// call external update process
 	filteredPathes := make([]*Path, 0, len(pathes))
+	outPathes := make([]*Path, 0, len(pathes))
 	for _, path := range pathes {
 		// no filter
 		filteredPathes = append(filteredPathes, path)
@@ -1159,10 +918,21 @@ func (p *peer) Disseminate(pathes []*Path, withdrawn bool) error {
 		if err := p.rib.Out.Insert(outPath); err != nil {
 			return fmt.Errorf("Disseminate: %w", err)
 		}
+		outPathes = append(outPathes, outPath)
 	}
-	_, err := p.buildUpdateMessage(filteredPathes)
+	msg, err := p.buildUpdateMessage(outPathes)
 	if err != nil {
 		return fmt.Errorf("Disseminate: %w", err)
+	}
+	p.tx <- msg
+	p.logInfo("send update: %v", GetMessage[*Update](msg.Message).NetworkLayerReachabilityInfo)
+	return nil
+}
+
+func (p *peer) initialUpdate() error {
+	groupedPath := p.locRib.GetByGroup()
+	for _, pathes := range groupedPath {
+		p.enqueueEvent(&triggerDissemination{pathes: pathes, withdrawn: false})
 	}
 	return nil
 }

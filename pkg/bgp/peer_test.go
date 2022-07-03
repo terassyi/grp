@@ -41,13 +41,13 @@ func TestPeerChangeState(t *testing.T) {
 	}{
 		{
 			name:   "IDLE to ESTAB 1",
-			peer:   &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
+			peer:   &peer{peerInfo: &peerInfo{neighbor: neig}, fsm: newFSM(), logger: logger},
 			events: []eventType{event_type_bgp_start, event_type_bgp_trans_conn_open, event_type_recv_open_msg, event_type_recv_keepalive_msg},
 			result: ESTABLISHED,
 		},
 		{
 			name: "IDLE to ESTAB 2",
-			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, fsm: newFSM(), logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,
@@ -57,7 +57,7 @@ func TestPeerChangeState(t *testing.T) {
 		},
 		{
 			name: "IDLE to ESTAB 3",
-			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, fsm: newFSM(), logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_start,
@@ -70,13 +70,13 @@ func TestPeerChangeState(t *testing.T) {
 		},
 		{
 			name:   "IDLE to IDLE 1",
-			peer:   &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
+			peer:   &peer{peerInfo: &peerInfo{neighbor: neig}, fsm: newFSM(), logger: logger},
 			events: []eventType{event_type_bgp_start, event_type_bgp_stop},
 			result: IDLE,
 		},
 		{
 			name: "IDLE to IDLE 2",
-			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, fsm: newFSM(), logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open,
 				event_type_recv_keepalive_msg,
@@ -85,7 +85,7 @@ func TestPeerChangeState(t *testing.T) {
 		},
 		{
 			name: "IDLE to ESTAB 4",
-			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, fsm: newFSM(), logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,
@@ -100,7 +100,7 @@ func TestPeerChangeState(t *testing.T) {
 		},
 		{
 			name: "IDLE to ESTAB 5",
-			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, fsm: newFSM(), logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,
@@ -119,7 +119,7 @@ func TestPeerChangeState(t *testing.T) {
 		},
 		{
 			name: "IDLE to IDLE 3",
-			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, state: IDLE, logger: logger},
+			peer: &peer{peerInfo: &peerInfo{neighbor: neig}, fsm: newFSM(), logger: logger},
 			events: []eventType{event_type_bgp_start,
 				event_type_bgp_trans_conn_open_failed,
 				event_type_bgp_trans_conn_open,
@@ -143,10 +143,10 @@ func TestPeerChangeState(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			for _, e := range tt.events {
-				err := tt.peer.changeState(e)
+				err := tt.peer.fsm.Change(e)
 				require.NoError(t, err)
 			}
-			assert.Equal(t, tt.result, tt.peer.state)
+			assert.Equal(t, tt.result, tt.peer.fsm.GetState())
 		})
 	}
 }
@@ -168,9 +168,10 @@ func TestPeer_generateOutPath(t *testing.T) {
 				local: true,
 			},
 			outPath: &Path{
-				id:    1,
-				info:  p.peerInfo,
-				local: true,
+				id:      1,
+				info:    p.peerInfo,
+				local:   true,
+				nextHop: p.addr,
 			},
 			wantErr: false,
 		},
@@ -271,7 +272,7 @@ func TestPeer_buildUpdateMessage(t *testing.T) {
 			update: &Update{
 				WithdrawnRoutesLen: 0,
 				WithdrawnRoutes:    []*Prefix{},
-				TotalPathAttrLen:   25,
+				TotalPathAttrLen:   26,
 				PathAttrs: []PathAttr{
 					CreateOrigin(ORIGIN_IGP),
 					CreateASPath([]uint16{100}),
@@ -282,7 +283,7 @@ func TestPeer_buildUpdateMessage(t *testing.T) {
 			},
 		},
 		{
-			name: "CASE 2",
+			name: "CASE 3",
 			pathes: []*Path{
 				{
 					as:             100,
@@ -306,7 +307,7 @@ func TestPeer_buildUpdateMessage(t *testing.T) {
 			update: &Update{
 				WithdrawnRoutesLen: 0,
 				WithdrawnRoutes:    []*Prefix{},
-				TotalPathAttrLen:   27,
+				TotalPathAttrLen:   28,
 				PathAttrs: []PathAttr{
 					CreateOrigin(ORIGIN_IGP),
 					CreateASPath([]uint16{100, 200}),

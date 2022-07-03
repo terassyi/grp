@@ -14,6 +14,7 @@ import (
 
 type Path struct {
 	id             int
+	group          int
 	info           *peerInfo
 	routes         []netlink.Route
 	as             int
@@ -32,10 +33,11 @@ type Path struct {
 	timestamp      time.Time
 }
 
-func newPath(info *peerInfo, as int, nextHop net.IP, origin Origin, asPath ASPath, med, localPref int, nlri *Prefix, attrs []PathAttr, link netlink.Link) *Path {
+func newPath(info *peerInfo, groupId, as int, nextHop net.IP, origin Origin, asPath ASPath, med, localPref int, nlri *Prefix, attrs []PathAttr, link netlink.Link) *Path {
 	rand.Seed(time.Now().UnixNano())
 	return &Path{
 		id:             rand.Int(),
+		group:          groupId,
 		info:           info,
 		as:             as,
 		nextHop:        nextHop,
@@ -54,17 +56,20 @@ func newPath(info *peerInfo, as int, nextHop net.IP, origin Origin, asPath ASPat
 	}
 }
 
-func CreateLocalPath(network string, as int, nextHop net.IP) (*Path, error) {
+func CreateLocalPath(network string, groupId, as int) (*Path, error) {
+	rand.Seed(time.Now().Unix())
 	_, cidr, err := net.ParseCIDR(network)
 	if err != nil {
 		return nil, err
 	}
 	path := &Path{
+		id:        rand.Int(),
+		group:     groupId,
 		nlri:      PrefixFromIPNet(cidr),
 		as:        as,
 		origin:    *CreateOrigin(ORIGIN_IGP),
 		asPath:    *CreateASPath([]uint16{uint16(as)}),
-		nextHop:   nextHop,
+		nextHop:   nil,
 		local:     true,
 		med:       0,
 		localPref: 100,
@@ -74,6 +79,10 @@ func CreateLocalPath(network string, as int, nextHop net.IP) (*Path, error) {
 		timestamp: time.Now(),
 	}
 	return path, nil
+}
+
+func (p *Path) SetGroup(id int) {
+	p.group = id
 }
 
 func (p *Path) GetPathAttrs() []PathAttr {

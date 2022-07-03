@@ -3,6 +3,8 @@ package bgp
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math/rand"
 	"net"
 	"os"
 	"os/signal"
@@ -23,8 +25,6 @@ const (
 )
 
 type Bgp struct {
-	// tx    chan message
-	// rx    chan message
 	as           int
 	port         int
 	routerId     net.IP
@@ -32,48 +32,16 @@ type Bgp struct {
 	peers        map[string]*peer // key: ipaddr string, value: peer struct pointer
 	locRib       *LocRib
 	adjRibIn     *AdjRibIn
-	networks     []*network
+	networks     []*net.IPNet
 	requestQueue chan *Request
+	config       *BgpConfig
 	logger       log.Logger
 	signalCh     chan os.Signal
+	id           int
 }
 
-type network struct {
-	*net.IPNet
-}
-
-type state uint8
-
-const (
-	// Idle state:
-	// In this state BGP refuses all incoming BGP connections.
-	// No resources are allocated to the peer.
-	// In response to the Start event, the local system initialized all BGP resources.
-	IDLE         state = iota
-	CONNECT      state = iota
-	ACTIVE       state = iota
-	OPEN_SENT    state = iota
-	OPEN_CONFIRM state = iota
-	ESTABLISHED  state = iota
-)
-
-func (s state) String() string {
-	switch s {
-	case IDLE:
-		return "IDLE"
-	case CONNECT:
-		return "CONNECT"
-	case ACTIVE:
-		return "ACTIVE"
-	case OPEN_SENT:
-		return "OPEN_SENT"
-	case OPEN_CONFIRM:
-		return "OPEN_CONFIRM"
-	case ESTABLISHED:
-		return "ESTABLISHED"
-	default:
-		return "Unknown"
-	}
+type BgpConfig struct {
+	bestPathConfig *BestPathConfig
 }
 
 var (
@@ -93,6 +61,7 @@ var (
 )
 
 func New(port int, logLevel int, out string) (*Bgp, error) {
+	rand.Seed(time.Now().Unix())
 	logger, err := log.New(log.Level(logLevel), out)
 	if err != nil {
 		return nil, err
@@ -108,8 +77,10 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 		adjRibIn:     newAdjRibIn(),
 		logger:       logger,
 		requestQueue: make(chan *Request, 16),
-		networks:     make([]*network, 0),
+		networks:     make([]*net.IPNet, 0),
 		signalCh:     sigCh,
+		id:           rand.Int(),
+		config:       &BgpConfig{bestPathConfig: &BestPathConfig{}},
 	}, nil
 }
 
@@ -136,12 +107,8 @@ func FromConfig(conf *Config, logLevel int, logOut string) (*Bgp, error) {
 			return nil, err
 		}
 	}
-	for _, target := range conf.Networks {
-		_, cidr, err := net.ParseCIDR(target)
-		if err != nil {
-			return nil, err
-		}
-		b.networks = append(b.networks, &network{cidr})
+	if err := b.originateRoutes(conf.Networks); err != nil {
+		return nil, err
 	}
 	return b, nil
 }
@@ -170,12 +137,10 @@ func (b *Bgp) Poll() error {
 		go p.poll(cctx)
 		p.enqueueEvent(&bgpStart{})
 	}
-	select {
-	case <-b.signalCh:
-		b.logger.Infof("Receive a signal. Terminate GRP BGP daemon.")
-		cancel()
-		return nil
-	}
+	<-b.signalCh
+	b.logger.Infof("Receive a signal. Terminate GRP BGP daemon.")
+	cancel()
+	return nil
 }
 
 func (b *Bgp) poll(ctx context.Context) error {
@@ -188,6 +153,8 @@ func (b *Bgp) poll(ctx context.Context) error {
 				if err := b.requestHandle(ctx, req); err != nil {
 					b.logger.Errorf("Request handler: %s", err)
 				}
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()
@@ -224,6 +191,10 @@ func (b *Bgp) requestHandle(ctx context.Context, req *Request) error {
 			return err
 		}
 	case "network":
+		if len(req.Args) < 1 {
+			return ErrInvalidBgpApiArguments
+		}
+
 	default:
 		return ErrUnknownBgpApiRequest
 	}
@@ -258,7 +229,6 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 }
 
 func (b *Bgp) pollRib(ctx context.Context) {
-	b.logger.Infof("LocRib poll start")
 	for {
 		select {
 		case pathes := <-b.locRib.queue:
@@ -274,4 +244,25 @@ func (b *Bgp) pollRib(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func (b *Bgp) originateRoutes(networks []string) error {
+	b.logger.Infof("Originate local routes: %v", networks)
+	for _, network := range networks {
+		path, err := CreateLocalPath(network, b.id, b.as)
+		if err != nil {
+			return fmt.Errorf("Bgp_originateRoutes: %w", err)
+		}
+		selected, err := b.adjRibIn.Select(b.as, path, false, b.config.bestPathConfig)
+		if err != nil {
+			return fmt.Errorf("Bgp_originateRoutes: %w", err)
+		}
+		if selected == nil {
+			continue
+		}
+		if err := b.locRib.Insert(selected); err != nil {
+			return fmt.Errorf("Bgp_originateRoutes: %w", err)
+		}
+	}
+	return nil
 }
