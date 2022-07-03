@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -591,12 +592,6 @@ func (p *peer) recvOpenMsgEvent(evt event) error {
 		p.keepAliveTimer.start()
 		builder := Builder(KEEPALIVE)
 		p.tx <- builder.Packet()
-		// move to ESTABLISHED
-		if err := p.fsm.Change(event_type_recv_open_msg); err != nil {
-			return err
-		}
-		// enqueue trigger disseminate
-		p.enqueueEvent(&triggerDissemination{})
 	default:
 		// Close transport connection
 		// Release resources
@@ -615,6 +610,15 @@ func (p *peer) recvKeepAliveMsgEvent(evt event) error {
 		// Complete initialization
 		// Restart hold timer
 		p.holdTimer.restart()
+		// move to ESTABLISHED
+		if err := p.fsm.Change(evt.typ()); err != nil {
+			return err
+		}
+		// enqueue trigger disseminate
+		if err := p.initialUpdate(); err != nil {
+			return err
+		}
+		return nil
 	case ESTABLISHED:
 		p.holdTimer.restart()
 	default:
@@ -671,7 +675,9 @@ func (p *peer) triggerDecisionProcessEvent(evt event) error {
 		}
 		return fmt.Errorf("Decision process: %s", errMsg)
 	}
-	p.locRib.enqueue(updatedPathes)
+	if len(updatedPathes) > 0 {
+		p.locRib.enqueue(updatedPathes)
+	}
 	return nil
 }
 
@@ -811,6 +817,8 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 
 	// If the UPDATE message contains a feasible route, the Adj-RIB-In will be updated with this route as follows:
 	adjRibInUpdate := false
+	rand.Seed(time.Now().UnixNano())
+	groupId := rand.Int()
 	for _, feasibleRoute := range msg.NetworkLayerReachabilityInfo {
 		// handle network layer reachability information
 		p.logInfo("feasible route %s", feasibleRoute)
@@ -820,7 +828,7 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 
 		// Otherwise, if the Adj-RIB-In has no route with NLRI identical to the new route,
 		// the new route shall be placed in the Adj-RIB-In.
-		path := newPath(p.peerInfo, p.neighbor.as, next, origin, asPath, med, localPref, feasibleRoute, propagateAttrs, p.link)
+		path := newPath(p.peerInfo, groupId, p.neighbor.as, next, origin, asPath, med, localPref, feasibleRoute, propagateAttrs, p.link)
 		feasiblePathes = append(feasiblePathes, path)
 		adjRibInUpdate = true
 		// p.logInfo("Insert into Adg-RIB-In: %s", path)
@@ -835,8 +843,9 @@ func (p *peer) handleUpdateMsg(msg *Update) error {
 
 func (p *peer) generateOutPath(path *Path) (*Path, error) {
 	outPath := path.DeepCopy()
-	outPath.info = p.peerInfo
+	(&outPath).info = p.peerInfo
 	if path.local {
+		(&outPath).nextHop = p.addr
 		return &outPath, nil
 	}
 	// Nexthop: If path.nexthop is same as neighbor address, use same next hop value
@@ -870,6 +879,7 @@ func (p *peer) buildUpdateMessage(pathes []*Path) (*Packet, error) {
 	nlri := make([]*Prefix, 0, len(pathes))
 	for _, path := range pathes {
 		nlri = append(nlri, path.nlri)
+		p.logInfo("nlri %s", nlri)
 	}
 	builder.PathAttrs(pathes[0].GetPathAttrs())
 	builder.NLRI(nlri)
@@ -1008,6 +1018,7 @@ func (p *peer) Disseminate(pathes []*Path, withdrawn bool) error {
 	// create path attributes for each path
 	// call external update process
 	filteredPathes := make([]*Path, 0, len(pathes))
+	outPathes := make([]*Path, 0, len(pathes))
 	for _, path := range pathes {
 		// no filter
 		filteredPathes = append(filteredPathes, path)
@@ -1017,13 +1028,30 @@ func (p *peer) Disseminate(pathes []*Path, withdrawn bool) error {
 		if err != nil {
 			return fmt.Errorf("Dissemintate: gnerate outgoing path: %w", err)
 		}
+		p.logInfo("OUT PATH %s", outPath)
 		if err := p.rib.Out.Insert(outPath); err != nil {
 			return fmt.Errorf("Disseminate: %w", err)
 		}
+		outPathes = append(outPathes, outPath)
 	}
-	_, err := p.buildUpdateMessage(filteredPathes)
+	msg, err := p.buildUpdateMessage(outPathes)
 	if err != nil {
 		return fmt.Errorf("Disseminate: %w", err)
+	}
+	p.tx <- msg
+	p.logInfo("send UPDATE %v", GetMessage[*Update](msg.Message).NetworkLayerReachabilityInfo)
+	return nil
+}
+
+func (p *peer) initialUpdate() error {
+	p.logInfo("Initial update")
+	groupedPath := p.locRib.GetByGroup()
+	p.logInfo("%v", groupedPath)
+	for _, pathes := range groupedPath {
+		for _, path := range pathes {
+			p.logInfo("Local path: %s", path)
+		}
+		p.enqueueEvent(&triggerDissemination{pathes: pathes, withdrawn: false})
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"os"
 	"os/signal"
@@ -24,8 +25,6 @@ const (
 )
 
 type Bgp struct {
-	// tx    chan message
-	// rx    chan message
 	as           int
 	port         int
 	routerId     net.IP
@@ -38,6 +37,7 @@ type Bgp struct {
 	config       *BgpConfig
 	logger       log.Logger
 	signalCh     chan os.Signal
+	id           int
 }
 
 type BgpConfig struct {
@@ -61,6 +61,7 @@ var (
 )
 
 func New(port int, logLevel int, out string) (*Bgp, error) {
+	rand.Seed(time.Now().Unix())
 	logger, err := log.New(log.Level(logLevel), out)
 	if err != nil {
 		return nil, err
@@ -78,6 +79,8 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 		requestQueue: make(chan *Request, 16),
 		networks:     make([]*net.IPNet, 0),
 		signalCh:     sigCh,
+		id:           rand.Int(),
+		config:       &BgpConfig{bestPathConfig: &BestPathConfig{}},
 	}, nil
 }
 
@@ -104,12 +107,8 @@ func FromConfig(conf *Config, logLevel int, logOut string) (*Bgp, error) {
 			return nil, err
 		}
 	}
-	for _, target := range conf.Networks {
-		_, cidr, err := net.ParseCIDR(target)
-		if err != nil {
-			return nil, err
-		}
-		b.networks = append(b.networks, cidr)
+	if err := b.originateRoutes(conf.Networks); err != nil {
+		return nil, err
 	}
 	return b, nil
 }
@@ -128,13 +127,6 @@ func (b *Bgp) setRouterId(routerId string) error {
 
 func (b *Bgp) Poll() error {
 	b.logger.Infoln("BGP daemon start.")
-	for _, network := range b.networks {
-		localPath, err := CreateLocalPath(network.String(), b.as)
-		if err != nil {
-			return err
-		}
-		b.adjRibIn.Insert(localPath)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := b.poll(ctx); err != nil { // BGP daemon main routine
 		cancel()
@@ -241,6 +233,7 @@ func (b *Bgp) pollRib(ctx context.Context) {
 	for {
 		select {
 		case pathes := <-b.locRib.queue:
+			b.logger.Infof("LocRib request %d", len(pathes))
 			for _, path := range pathes {
 				if err := b.locRib.Insert(path); err != nil {
 					b.logger.Errorf("pollRib: ", err)
@@ -255,10 +248,10 @@ func (b *Bgp) pollRib(ctx context.Context) {
 	}
 }
 
-func (b *Bgp) originateRoutes(networks []*net.IPNet) error {
-	pathes := make([]*Path, len(networks))
+func (b *Bgp) originateRoutes(networks []string) error {
+	b.logger.Infof("Originate local routes: %v", networks)
 	for _, network := range networks {
-		path, err := CreateLocalPath(network.String(), b.as)
+		path, err := CreateLocalPath(network, b.id, b.as)
 		if err != nil {
 			return fmt.Errorf("Bgp_originateRoutes: %w", err)
 		}
@@ -269,8 +262,10 @@ func (b *Bgp) originateRoutes(networks []*net.IPNet) error {
 		if selected == nil {
 			continue
 		}
-		pathes = append(pathes, selected)
+		b.logger.Infof("Selected %s", path)
+		if err := b.locRib.Insert(selected); err != nil {
+			return fmt.Errorf("Bgp_originateRoutes: %w", err)
+		}
 	}
-
 	return nil
 }

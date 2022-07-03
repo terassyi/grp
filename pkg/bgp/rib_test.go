@@ -75,133 +75,38 @@ func TestLocRib_IsReachable(t *testing.T) {
 	}
 }
 
-func TestLocRib_GetNotSyncedPath(t *testing.T) {
+func TestLocRib_GetByGroup(t *testing.T) {
 	loc := NewLocRib()
-	eth0, err := netlink.LinkByName("eth0")
-	require.NoError(t, err)
-	eth1, err := netlink.LinkByName("eth1")
-	require.NoError(t, err)
-	pathMap := make(map[string]*Path)
-	pathMap["10.0.0.0/24"] = &Path{
-		id: 1,
-		info: &peerInfo{
-			neighbor: &neighbor{
-				addr:     net.ParseIP("10.0.0.3"),
-				port:     179,
-				routerId: net.ParseIP("2.2.2.2"),
-				as:       200,
-			},
-			link: eth0,
-			as:   100,
-		},
-		nextHop: net.ParseIP("10.0.0.3"),
-		nlri:    PrefixFromString("10.0.0.0/24"),
-		status:  PathStatusInstalledIntoLocRib,
+	loc.table["10.0.0.0/24"] = &Path{id: 1, group: 0}
+	loc.table["10.1.0.0/24"] = &Path{id: 2, group: 1}
+	loc.table["10.1.1.0/24"] = &Path{id: 3, group: 1}
+	loc.table["10.1.20.0/24"] = &Path{id: 4, group: 1}
+	loc.table["10.2.1.0/24"] = &Path{id: 5, group: 2}
+	loc.table["10.2.10.0/24"] = &Path{id: 6, group: 2}
+	loc.table["10.20.0.0/24"] = &Path{id: 7, group: 3}
+	wantMap := map[int][]int{
+		0: {1},
+		1: {2, 3, 4},
+		2: {5, 6},
+		3: {7},
 	}
-	pathMap["10.0.1.0/24"] = &Path{
-		id: 3,
-		info: &peerInfo{
-			neighbor: &neighbor{
-				addr:     net.ParseIP("10.0.0.3"),
-				port:     179,
-				routerId: net.ParseIP("2.2.2.2"),
-				as:       200,
-			},
-			link: eth0,
-			as:   100,
-		},
-		nextHop: net.ParseIP("10.0.0.3"),
-		nlri:    PrefixFromString("10.0.1.0/24"),
-		status:  PathStatusInstalledIntoLocRib,
-	}
-	pathMap["10.0.2.0/24"] = &Path{
-		id: 4,
-		info: &peerInfo{
-			neighbor: &neighbor{
-				addr:     net.ParseIP("10.0.0.3"),
-				port:     179,
-				routerId: net.ParseIP("2.2.2.2"),
-				as:       200,
-			},
-			link: eth0,
-			as:   100,
-		},
-		nextHop: net.ParseIP("10.0.0.3"),
-		nlri:    PrefixFromString("10.0.1.0/24"),
-		status:  PathStatusDisseminated,
-	}
-
-	pathMap["10.1.0.0/24"] = &Path{
-		id: 2,
-		info: &peerInfo{
-			neighbor: &neighbor{
-				addr:     net.ParseIP("10.0.1.4"),
-				port:     179,
-				routerId: net.ParseIP("4.4.4.4"),
-				as:       400,
-			},
-			link: eth1,
-			as:   100,
-		},
-		nextHop: net.ParseIP("10.0.1.4"),
-		nlri:    PrefixFromString("10.0.1.0/24"),
-		status:  PathStatusNotSynchronized,
-	}
-	pathMap["10.1.1.0/24"] = &Path{
-		id: 5,
-		info: &peerInfo{
-			neighbor: &neighbor{
-				addr:     net.ParseIP("10.0.1.4"),
-				port:     179,
-				routerId: net.ParseIP("4.4.4.4"),
-				as:       400,
-			},
-			link: eth1,
-			as:   100,
-		},
-		nextHop: net.ParseIP("10.0.1.4"),
-		nlri:    PrefixFromString("10.1.1.0/24"),
-		status:  PathStatusDisseminated,
-	}
-	pathMap["10.2.0.0/24"] = &Path{
-		id:      6,
-		info:    nil,
-		nextHop: net.ParseIP("10.2.0.1"),
-		nlri:    PrefixFromString("10.2.0.0/24"),
-		status:  PathStatusInstalledIntoLocRib,
-		local:   true,
-	}
-	pathMap["10.2.4.0/24"] = &Path{
-		id:      7,
-		info:    nil,
-		nextHop: net.ParseIP("10.2.0.1"),
-		nlri:    PrefixFromString("10.2.4.0/24"),
-		status:  PathStatusDisseminated,
-		local:   true,
-	}
-
-	for nlri, path := range pathMap {
-		loc.table[nlri] = path
-	}
-
-	tests := []struct {
-		name string
-		want []*Path
-	}{
-		{
-			name: "case 1",
-			want: []*Path{pathMap["10.0.0.0/24"], pathMap["10.0.1.0/24"], pathMap["10.2.0.0/24"], pathMap["10.1.0.0/24"]},
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			pathes, err := loc.GetNotSyncedPath()
-			require.NoError(t, err)
-			assert.Equal(t, len(tt.want), len(pathes))
-			// assert.Equal(t, tt.want, pathes)
-		})
-	}
+	t.Run("Group", func(t *testing.T) {
+		pathes := loc.GetByGroup()
+		pathIds := map[int][]int{
+			0: {},
+			1: {},
+			2: {},
+			3: {},
+		}
+		for g, pathes := range pathes {
+			for _, p := range pathes {
+				pathIds[g] = append(pathIds[g], p.id)
+			}
+		}
+		for g, _ := range wantMap {
+			assert.Equal(t, len(wantMap[g]), len(pathIds[g]))
+		}
+	})
 }
 
 func TestAdjRibIn_Insert(t *testing.T) {

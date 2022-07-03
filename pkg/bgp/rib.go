@@ -122,7 +122,7 @@ func (r *AdjRibIn) Calculate(nlri *Prefix, bestPathConfig *BestPathConfig) (Best
 }
 
 func (r *AdjRibIn) Select(as int, path *Path, withdrawn bool, bestPathConfig *BestPathConfig) (*Path, error) {
-	if path.asPath.Contains(as) {
+	if !path.local && path.asPath.Contains(as) {
 		return nil, nil
 	}
 	if path.asPath.CheckLoop() {
@@ -176,12 +176,9 @@ func (r *AdjRibOut) Drop(prefix *Prefix) error {
 	return nil
 }
 
-func (r *AdjRibOut) Sync(path *Path) error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	_, ok := r.table[path.nlri.String()]
-	if !ok {
-	}
+func (r *AdjRibOut) GroupByPathAttributes() [][]*Path {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
 	return nil
 }
 
@@ -272,6 +269,30 @@ func (l *LocRib) isntallToRib(link netlink.Link, cidr *net.IPNet, next net.IP) (
 	return rib.Get4(link, cidr.IP)
 }
 
+func (l *LocRib) GetAll() []*Path {
+	l.mutex.RLock()
+	defer l.mutex.RUnlock()
+	pathes := make([]*Path, 0)
+	for _, path := range l.table {
+		pathes = append(pathes, path)
+	}
+	return pathes
+}
+
+func (l *LocRib) GetByGroup() map[int][]*Path {
+	pathMap := make(map[int][]*Path)
+	l.mutex.RLock()
+	defer l.mutex.RUnlock()
+	for _, path := range l.table {
+		if _, ok := pathMap[path.group]; !ok {
+			pathMap[path.group] = []*Path{path}
+		} else {
+			pathMap[path.group] = append(pathMap[path.group], path)
+		}
+	}
+	return pathMap
+}
+
 func (l *LocRib) IsReachable(addr net.IP) bool {
 	l.mutex.RLock()
 	defer l.mutex.RUnlock()
@@ -282,16 +303,4 @@ func (l *LocRib) IsReachable(addr net.IP) bool {
 		}
 	}
 	return false
-}
-
-func (l *LocRib) GetNotSyncedPath() ([]*Path, error) {
-	l.mutex.Lock()
-	notSynced := make([]*Path, 0)
-	defer l.mutex.Unlock()
-	for _, path := range l.table {
-		if path.status == PathStatusNotSynchronized || path.status == PathStatusInstalledIntoLocRib {
-			notSynced = append(notSynced, path)
-		}
-	}
-	return notSynced, nil
 }

@@ -587,7 +587,7 @@ func (u *Update) Decode(l int) ([]byte, error) {
 		if nlri.Length%8 != 0 {
 			length++
 		}
-		if err := binary.Write(buf, binary.BigEndian, nlri.Prefix[:length]); err != nil {
+		if err := binary.Write(buf, binary.BigEndian, nlri.Prefix.To4()[:length]); err != nil {
 			return nil, fmt.Errorf("Update_Decode: nlri prefix: %w", err)
 		}
 	}
@@ -839,6 +839,9 @@ func (b *messageBuilder) PathAttrs(attrs []PathAttr) {
 		var a uint16 = 0
 		for _, attr := range attrs {
 			a += uint16(3 + attr.ValueLen())
+			if attr.IsExtended() {
+				a++
+			}
 		}
 		b.update.TotalPathAttrLen += a
 		b.update.PathAttrs = append(b.update.PathAttrs, attrs...)
