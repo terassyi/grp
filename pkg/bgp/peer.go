@@ -206,15 +206,15 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 }
 
 func (p *peer) logInfo(format string, v ...any) {
-	p.logger.Infof("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
+	p.logger.Infof("[%s:%d(%d) %12s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
 }
 
 func (p *peer) logWarn(format string, v ...any) {
-	p.logger.Warnf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
+	p.logger.Warnf("[%s:%d(%d) %12s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
 }
 
 func (p *peer) logErr(format string, v ...any) {
-	p.logger.Errorf("[%s:%d(%d) %s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
+	p.logger.Errorf("[%s:%d(%d) %12s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
 }
 
 func (p *peer) poll(ctx context.Context) {
@@ -360,6 +360,7 @@ func (p *peer) handleConn(ctx context.Context) error {
 				}
 			case <-childCtx.Done():
 				p.logInfo("Tx handle stop...")
+				p.enqueueEvent(&bgpTransConnClosed{})
 				return
 			}
 		}
@@ -519,6 +520,8 @@ func (p *peer) transClosedEvent() error {
 		p.connRetryTimer.restart()
 	case ACTIVE:
 		p.conn.Close()
+	case ESTABLISHED:
+		p.release()
 	default:
 		return fmt.Errorf("transClosed: %w", ErrInvalidEventInCurrentState)
 	}
