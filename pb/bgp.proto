@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package grp;
+
+option go_package = "github.com/terassyi/grp/pb";
+
+import "google/protobuf/empty.proto";
+
+service BgpApi {
+	rpc Health(HealthRequest) returns(google.protobuf.Empty);
+}
+
+message HealthRequest {}
