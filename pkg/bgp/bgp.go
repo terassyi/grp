@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/terassyi/grp/pkg/constants"
 	"github.com/terassyi/grp/pkg/log"
 	"github.com/vishvananda/netlink"
 )
@@ -29,7 +28,6 @@ type Bgp struct {
 	as           int
 	port         int
 	routerId     net.IP
-	apiServer    *server
 	peers        map[string]*peer // key: ipaddr string, value: peer struct pointer
 	locRib       *LocRib
 	adjRibIn     *AdjRibIn
@@ -67,10 +65,6 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 	if err != nil {
 		return nil, err
 	}
-	apiServer, err := newServer(constants.ServiceApiServerMap["bgp"])
-	if err != nil {
-		return nil, err
-	}
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh,
 		syscall.SIGINT,
@@ -86,7 +80,6 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 		signalCh:     sigCh,
 		id:           rand.Int(),
 		config:       &BgpConfig{bestPathConfig: &BestPathConfig{}},
-		apiServer:    apiServer,
 	}, nil
 }
 
@@ -149,6 +142,18 @@ func (b *Bgp) Poll() error {
 	return nil
 }
 
+func (b *Bgp) PollWithContext(ctx context.Context) error {
+	b.logger.Infoln("BGP daemon start.")
+	if err := b.poll(ctx); err != nil { // BGP daemon main routine
+		return err
+	}
+	for _, p := range b.peers {
+		go p.poll(ctx)
+		p.enqueueEvent(&bgpStart{})
+	}
+	return nil
+}
+
 func (b *Bgp) poll(ctx context.Context) error {
 	// request handling routine
 	b.logger.Infof("GRP BGP Polling Start.")
@@ -165,7 +170,6 @@ func (b *Bgp) poll(ctx context.Context) error {
 		}
 	}()
 	go b.pollRib(ctx)
-	go b.apiServer.serve()
 	return nil
 }
 

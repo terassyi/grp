@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 
 	"github.com/olekukonko/tablewriter"
@@ -26,15 +25,4 @@ var listCmd = &cobra.Command{
 		}
 		table.Render()
 	},
-}
-
-func health(port int) bool {
-	res, err := http.Get(fmt.Sprintf("http://localhost:%d/helth", port))
-	if err != nil {
-		return false
-	}
-	if res.StatusCode != http.StatusOK {
-		return false
-	}
-	return true
 }
