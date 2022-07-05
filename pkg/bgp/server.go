@@ -36,3 +36,11 @@ func (s *server) serve() error {
 func (s *server) Health(ctx context.Context, in *pb.HealthRequest) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, nil
 }
+
+func (s *server) GetNeighbor(ctx context.Context, in *pb.GetNeighborRequest) (*pb.GetNeighborResponse, error) {
+	return nil, nil
+}
+
+func (s *server) ListNeighbor(ctx context.Context, in *pb.ListNeighborRequest) (*pb.ListNeighborResponse, error) {
+	return nil, nil
+}

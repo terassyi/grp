@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/pb"
@@ -17,34 +15,53 @@ var bgpCmd = &cobra.Command{
 	Short: "GRP BGP operating cli",
 }
 
+type bgpClient struct {
+	pb.BgpApiClient
+	conn *grpc.ClientConn
+}
+
+func newBgpClient() *bgpClient {
+	conn, err := grpc.Dial(fmt.Sprintf("localhost:%d", constants.ServiceApiServerMap["bgp"]), grpc.WithInsecure())
+	if err != nil {
+		panic(err)
+	}
+	return &bgpClient{
+		BgpApiClient: pb.NewBgpApiClient(conn),
+		conn:         conn,
+	}
+}
+
 var healthSubCmd = &cobra.Command{
 	Use:   "health",
 	Short: "health check",
 	Run: func(cmd *cobra.Command, args []string) {
-		conn, err := grpc.Dial(fmt.Sprintf("localhost:%d", constants.ServiceApiServerMap["bgp"]), grpc.WithInsecure())
-		if err != nil {
-			log.Println(err)
-			os.Exit(1)
+		if bgpHealthCheck() {
+			fmt.Println("bgpd is healthy")
+		} else {
+			fmt.Println("bgpd is unhealthy")
 		}
-		defer conn.Close()
-		client := pb.NewBgpApiClient(conn)
-		if _, err := client.Health(context.Background(), &pb.HealthRequest{}); err != nil {
-			log.Println(err)
-			os.Exit(1)
-		}
-		fmt.Println("healthy")
 	},
 }
 
 func bgpHealthCheck() bool {
-	conn, err := grpc.Dial(fmt.Sprintf("localhost:%d", constants.ServiceApiServerMap["bgp"]), grpc.WithInsecure())
-	if err != nil {
-		return false
-	}
-	defer conn.Close()
-	client := pb.NewBgpApiClient(conn)
-	if _, err := client.Health(context.Background(), &pb.HealthRequest{}); err != nil {
+	bc := newBgpClient()
+	defer bc.conn.Close()
+	if _, err := bc.Health(context.Background(), &pb.HealthRequest{}); err != nil {
 		return false
 	}
 	return true
+}
+
+var listNeighborSubCmd = &cobra.Command{
+	Use:   "list neighbors",
+	Short: "list up registered neighbors",
+	Run: func(cmd *cobra.Command, args []string) {
+		bc := newBgpClient()
+		defer bc.conn.Close()
+		_, err := bc.ListNeighbor(context.Background(), &pb.ListNeighborRequest{})
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println("hoge")
+	},
 }

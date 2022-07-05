@@ -17,7 +17,10 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 
 	// bgp command
-	bgpCmd.AddCommand(healthSubCmd)
+	bgpCmd.AddCommand(
+		healthSubCmd,
+		listNeighborSubCmd,
+	)
 	rootCmd.AddCommand(bgpCmd)
 }
 

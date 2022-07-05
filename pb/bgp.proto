@@ -8,6 +8,31 @@ import "google/protobuf/empty.proto";
 
 service BgpApi {
 	rpc Health(HealthRequest) returns(google.protobuf.Empty);
+	rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
+	rpc ListNeighbor(ListNeighborRequest) returns(ListNeighborResponse);
 }
 
 message HealthRequest {}
+
+message NeighborInfo {
+	uint32 as = 1;
+	string address = 2;
+	uint32 port = 3;
+	string routerId =4;
+}
+
+message GetNeighborRequest {
+	uint32 as = 1; 
+	optional string peerAddress = 2;
+	optional string routerId = 3;
+}
+
+message GetNeighborResponse {
+	NeighborInfo neighbor = 1;
+}
+
+message ListNeighborRequest {}
+
+message ListNeighborResponse {
+	repeated NeighborInfo neighbors = 1;
+}
