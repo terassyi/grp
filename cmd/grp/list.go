@@ -17,7 +17,7 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List services",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("GRP Service list\n")
+		fmt.Println("GRP Service list")
 		table := tablewriter.NewWriter(os.Stdout)
 		table.SetHeader([]string{"Service", "Endpoint", "Status"})
 		for name, f := range healthCheckMap {

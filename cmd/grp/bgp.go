@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/pb"
@@ -52,6 +54,11 @@ func bgpHealthCheck() bool {
 	return true
 }
 
+var neighborSubCmd = &cobra.Command{
+	Use:   "neighbor",
+	Short: "neighbor operationg commands",
+}
+
 var listNeighborSubCmd = &cobra.Command{
 	Use:   "list neighbors",
 	Short: "list up registered neighbors",
@@ -63,5 +70,40 @@ var listNeighborSubCmd = &cobra.Command{
 			panic(err)
 		}
 		fmt.Println("hoge")
+	},
+}
+
+var getNeighborSubCmd = &cobra.Command{
+	Use:   "get neighbor",
+	Short: "get neighbor",
+	Args:  cobra.MinimumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		asn, err := cmd.Flags().GetInt("as")
+		if err != nil {
+			log.Fatal(err)
+		}
+		routerId, err := cmd.Flags().GetString("routerid")
+		if err != nil {
+			log.Fatal(err)
+		}
+		addr, err := cmd.Flags().GetString("address")
+		if err != nil {
+			log.Fatal(err)
+		}
+		if asn == 0 && routerId == "" && addr == "" {
+			fmt.Println("Please specify at least an identifier(AS or router id or address)")
+			os.Exit(1)
+		}
+		bc := newBgpClient()
+		defer bc.conn.Close()
+		res, err := bc.GetNeighbor(context.Background(), &pb.GetNeighborRequest{
+			As:          uint32(asn),
+			RouterId:    &routerId,
+			PeerAddress: &addr,
+		})
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(res)
 	},
 }

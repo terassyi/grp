@@ -13,6 +13,7 @@ GRP_DIR := ./cmd/grp
 COMPOSE := docker compose
 
 BGP_TEST_COMPOSE := ./scenario/bgp-test/docker-compose.dev.yml
+BGP_TEST_GRP_CONTAINER_NAME := pe1
 
 TINET_SPEC := ./scenario/bgp/tinet-spec.yml
 TINET_FRR_SPEC := ./scenario/bgp/tinet-frr-spec.yml

@@ -17,9 +17,16 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 
 	// bgp command
+	// neighbor sub command
+	getNeighborSubCmd.Flags().IntP("as", "a", 0, "AS Number of the neighbor")
+	getNeighborSubCmd.Flags().StringP("routerid", "r", "", "AS Number of the neighbor")
+	getNeighborSubCmd.Flags().StringP("address", "d", "", "Peer IP Address")
+	neighborSubCmd.AddCommand(
+		listNeighborSubCmd,
+	)
 	bgpCmd.AddCommand(
 		healthSubCmd,
-		listNeighborSubCmd,
+		neighborSubCmd,
 	)
 	rootCmd.AddCommand(bgpCmd)
 }

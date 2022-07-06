@@ -25,7 +25,9 @@ func NewServer(config *Config, logLevel int, logOut string) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	b.logger.Infoln("gRPC server is not created")
 	grpcServer := grpc.NewServer([]grpc.ServerOption{}...)
+	b.logger.Infoln("gRPC server created")
 	return &server{
 		bgp:       b,
 		apiServer: grpcServer,
@@ -33,9 +35,13 @@ func NewServer(config *Config, logLevel int, logOut string) (*server, error) {
 }
 
 func (s *server) Run(ctx context.Context) error {
+	s.bgp.logger.Infoln("GRP BGP Server Start")
 	cctx, cancel := context.WithCancel(ctx)
 	sigCh := make(chan os.Signal, 1)
-	defer cancel()
+	defer func() {
+		cancel()
+		s.bgp.logger.Infoln("BGP server stopped.")
+	}()
 	signal.Notify(sigCh,
 		syscall.SIGINT,
 		syscall.SIGTERM)
@@ -49,8 +55,12 @@ func (s *server) Run(ctx context.Context) error {
 			s.bgp.logger.Errorln(err)
 		}
 	}()
-	go s.apiServer.Serve(listener)
+	go func() {
+		if err := s.apiServer.Serve(listener); err != nil {
+			s.bgp.logger.Errorln(err)
+		}
+	}()
 
-	<-s.signalCh
+	<-sigCh
 	return nil
 }
