@@ -22,6 +22,7 @@ func init() {
 	getNeighborSubCmd.Flags().StringP("routerid", "r", "", "AS Number of the neighbor")
 	getNeighborSubCmd.Flags().StringP("address", "d", "", "Peer IP Address")
 	neighborSubCmd.AddCommand(
+		getNeighborSubCmd,
 		listNeighborSubCmd,
 	)
 	bgpCmd.AddCommand(

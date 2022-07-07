@@ -76,7 +76,6 @@ var listNeighborSubCmd = &cobra.Command{
 var getNeighborSubCmd = &cobra.Command{
 	Use:   "get neighbor",
 	Short: "get neighbor",
-	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		asn, err := cmd.Flags().GetInt("as")
 		if err != nil {
