@@ -7,9 +7,13 @@ option go_package = "github.com/terassyi/grp/pb";
 import "google/protobuf/empty.proto";
 
 service BgpApi {
-	rpc Health(HealthRequest) returns(google.protobuf.Empty);
+	rpc Health(HealthRequest) returns (google.protobuf.Empty);
 	rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
-	rpc ListNeighbor(ListNeighborRequest) returns(ListNeighborResponse);
+	rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
+
+	rpc Remote(RemoteRequest) returns (RemoteResponse);
+	rpc RouterId(RouterIdRequest) returns (google.protobuf.Empty);
+	rpc Network(NetworkRequest) returns (google.protobuf.Empty);
 }
 
 message HealthRequest {}
@@ -35,4 +39,21 @@ message ListNeighborRequest {}
 
 message ListNeighborResponse {
 	repeated NeighborInfo neighbors = 1;
+}
+
+message RemoteRequest {
+	int32 as = 1;
+}
+
+message RemoteResponse {
+	bool result = 1;
+	string message = 2;
+}
+
+message RouterIdRequest {
+	string routerId = 1;
+}
+
+message NetworkRequest {
+	string network = 1;
 }

@@ -65,11 +65,15 @@ var listNeighborSubCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		bc := newBgpClient()
 		defer bc.conn.Close()
-		_, err := bc.ListNeighbor(context.Background(), &pb.ListNeighborRequest{})
+		res, err := bc.ListNeighbor(context.Background(), &pb.ListNeighborRequest{})
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("hoge")
+		fmt.Println("BGP Neighbors")
+		for _, neighbor := range res.Neighbors {
+			showNeighborInfor(neighbor)
+			fmt.Println()
+		}
 	},
 }
 
@@ -103,6 +107,14 @@ var getNeighborSubCmd = &cobra.Command{
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println(res)
+
+		fmt.Println("BGP Neighbor")
+		showNeighborInfor(res.Neighbor)
 	},
+}
+
+func showNeighborInfor(info *pb.NeighborInfo) {
+	fmt.Printf("  neighbor address %s\n", info.GetAddress())
+	fmt.Printf("  remote AS %d\n", info.GetAs())
+	fmt.Printf("  router id %s\n", info.GetRouterId())
 }

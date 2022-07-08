@@ -40,14 +40,30 @@ func (s *server) GetNeighbor(ctx context.Context, in *pb.GetNeighborRequest) (*p
 	}
 	return &pb.GetNeighborResponse{
 		Neighbor: &pb.NeighborInfo{
-			As:       uint32(peer.as),
-			Address:  peer.addr.String(),
-			Port:     uint32(peer.port),
-			RouterId: peer.routerId.String(),
+			As:       uint32(peer.neighbor.as),
+			Address:  peer.neighbor.addr.String(),
+			Port:     uint32(peer.neighbor.port),
+			RouterId: peer.neighbor.addr.String(),
 		},
 	}, nil
 }
 
 func (s *server) ListNeighbor(ctx context.Context, in *pb.ListNeighborRequest) (*pb.ListNeighborResponse, error) {
-	return nil, nil
+	neighbors := make([]*pb.NeighborInfo, 0)
+	for _, p := range s.bgp.peers {
+		info := &pb.NeighborInfo{
+			As:       uint32(p.neighbor.as),
+			Address:  p.neighbor.addr.String(),
+			Port:     uint32(p.neighbor.port),
+			RouterId: p.neighbor.addr.String(),
+		}
+		neighbors = append(neighbors, info)
+	}
+	return &pb.ListNeighborResponse{
+		Neighbors: neighbors,
+	}, nil
+}
+
+func (s *server) Network(ctx context.Context, in *pb.NetworkRequest) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
 }
