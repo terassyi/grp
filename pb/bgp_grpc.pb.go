@@ -24,8 +24,12 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type BgpApiClient interface {
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	Show(ctx context.Context, in *ShowRequest, opts ...grpc.CallOption) (*ShowResponse, error)
 	GetNeighbor(ctx context.Context, in *GetNeighborRequest, opts ...grpc.CallOption) (*GetNeighborResponse, error)
 	ListNeighbor(ctx context.Context, in *ListNeighborRequest, opts ...grpc.CallOption) (*ListNeighborResponse, error)
+	SetAS(ctx context.Context, in *SetASRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	RouterId(ctx context.Context, in *RouterIdRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	RemoteAS(ctx context.Context, in *RemoteASRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 	Network(ctx context.Context, in *NetworkRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 }
 
@@ -40,6 +44,15 @@ func NewBgpApiClient(cc grpc.ClientConnInterface) BgpApiClient {
 func (c *bgpApiClient) Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
 	out := new(empty.Empty)
 	err := c.cc.Invoke(ctx, "/grp.BgpApi/Health", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *bgpApiClient) Show(ctx context.Context, in *ShowRequest, opts ...grpc.CallOption) (*ShowResponse, error) {
+	out := new(ShowResponse)
+	err := c.cc.Invoke(ctx, "/grp.BgpApi/Show", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +77,33 @@ func (c *bgpApiClient) ListNeighbor(ctx context.Context, in *ListNeighborRequest
 	return out, nil
 }
 
+func (c *bgpApiClient) SetAS(ctx context.Context, in *SetASRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, "/grp.BgpApi/SetAS", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *bgpApiClient) RouterId(ctx context.Context, in *RouterIdRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, "/grp.BgpApi/RouterId", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *bgpApiClient) RemoteAS(ctx context.Context, in *RemoteASRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, "/grp.BgpApi/RemoteAS", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *bgpApiClient) Network(ctx context.Context, in *NetworkRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
 	out := new(empty.Empty)
 	err := c.cc.Invoke(ctx, "/grp.BgpApi/Network", in, out, opts...)
@@ -78,8 +118,12 @@ func (c *bgpApiClient) Network(ctx context.Context, in *NetworkRequest, opts ...
 // for forward compatibility
 type BgpApiServer interface {
 	Health(context.Context, *HealthRequest) (*empty.Empty, error)
+	Show(context.Context, *ShowRequest) (*ShowResponse, error)
 	GetNeighbor(context.Context, *GetNeighborRequest) (*GetNeighborResponse, error)
 	ListNeighbor(context.Context, *ListNeighborRequest) (*ListNeighborResponse, error)
+	SetAS(context.Context, *SetASRequest) (*empty.Empty, error)
+	RouterId(context.Context, *RouterIdRequest) (*empty.Empty, error)
+	RemoteAS(context.Context, *RemoteASRequest) (*empty.Empty, error)
 	Network(context.Context, *NetworkRequest) (*empty.Empty, error)
 	mustEmbedUnimplementedBgpApiServer()
 }
@@ -91,11 +135,23 @@ type UnimplementedBgpApiServer struct {
 func (UnimplementedBgpApiServer) Health(context.Context, *HealthRequest) (*empty.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Health not implemented")
 }
+func (UnimplementedBgpApiServer) Show(context.Context, *ShowRequest) (*ShowResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Show not implemented")
+}
 func (UnimplementedBgpApiServer) GetNeighbor(context.Context, *GetNeighborRequest) (*GetNeighborResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetNeighbor not implemented")
 }
 func (UnimplementedBgpApiServer) ListNeighbor(context.Context, *ListNeighborRequest) (*ListNeighborResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListNeighbor not implemented")
+}
+func (UnimplementedBgpApiServer) SetAS(context.Context, *SetASRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetAS not implemented")
+}
+func (UnimplementedBgpApiServer) RouterId(context.Context, *RouterIdRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RouterId not implemented")
+}
+func (UnimplementedBgpApiServer) RemoteAS(context.Context, *RemoteASRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoteAS not implemented")
 }
 func (UnimplementedBgpApiServer) Network(context.Context, *NetworkRequest) (*empty.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Network not implemented")
@@ -127,6 +183,24 @@ func _BgpApi_Health_Handler(srv interface{}, ctx context.Context, dec func(inter
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(BgpApiServer).Health(ctx, req.(*HealthRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BgpApi_Show_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ShowRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BgpApiServer).Show(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/grp.BgpApi/Show",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BgpApiServer).Show(ctx, req.(*ShowRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -167,6 +241,60 @@ func _BgpApi_ListNeighbor_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BgpApi_SetAS_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetASRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BgpApiServer).SetAS(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/grp.BgpApi/SetAS",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BgpApiServer).SetAS(ctx, req.(*SetASRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BgpApi_RouterId_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RouterIdRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BgpApiServer).RouterId(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/grp.BgpApi/RouterId",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BgpApiServer).RouterId(ctx, req.(*RouterIdRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BgpApi_RemoteAS_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoteASRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BgpApiServer).RemoteAS(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/grp.BgpApi/RemoteAS",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BgpApiServer).RemoteAS(ctx, req.(*RemoteASRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _BgpApi_Network_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(NetworkRequest)
 	if err := dec(in); err != nil {
@@ -197,12 +325,28 @@ var BgpApi_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _BgpApi_Health_Handler,
 		},
 		{
+			MethodName: "Show",
+			Handler:    _BgpApi_Show_Handler,
+		},
+		{
 			MethodName: "GetNeighbor",
 			Handler:    _BgpApi_GetNeighbor_Handler,
 		},
 		{
 			MethodName: "ListNeighbor",
 			Handler:    _BgpApi_ListNeighbor_Handler,
+		},
+		{
+			MethodName: "SetAS",
+			Handler:    _BgpApi_SetAS_Handler,
+		},
+		{
+			MethodName: "RouterId",
+			Handler:    _BgpApi_RouterId_Handler,
+		},
+		{
+			MethodName: "RemoteAS",
+			Handler:    _BgpApi_RemoteAS_Handler,
 		},
 		{
 			MethodName: "Network",

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
+	"strconv"
 
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/pb"
@@ -15,6 +17,20 @@ import (
 var bgpCmd = &cobra.Command{
 	Use:   "bgp",
 	Short: "GRP BGP operating cli",
+	Args:  cobra.MinimumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		as, err := strconv.Atoi(args[0])
+		if err != nil {
+			log.Println(err)
+			os.Exit(1)
+		}
+		bc := newBgpClient()
+		defer bc.conn.Close()
+		if _, err := bc.SetAS(context.Background(), &pb.SetASRequest{As: int32(as)}); err != nil {
+			log.Println(err)
+			os.Exit(1)
+		}
+	},
 }
 
 type bgpClient struct {
@@ -54,6 +70,23 @@ func bgpHealthCheck() bool {
 	return true
 }
 
+var showSubCmd = &cobra.Command{
+	Use:   "show",
+	Short: "show bgp server information",
+	Run: func(cmd *cobra.Command, args []string) {
+		bc := newBgpClient()
+		defer bc.conn.Close()
+		res, err := bc.Show(context.Background(), &pb.ShowRequest{})
+		if err != nil {
+			os.Exit(1)
+		}
+		fmt.Println("BGP server information")
+		fmt.Printf("  Running at %d\n", res.Port)
+		fmt.Printf("  AS number %d\n", res.As)
+		fmt.Printf("  Router id %s\n", res.RouterId)
+	},
+}
+
 var neighborSubCmd = &cobra.Command{
 	Use:   "neighbor",
 	Short: "neighbor operationg commands",
@@ -67,11 +100,12 @@ var listNeighborSubCmd = &cobra.Command{
 		defer bc.conn.Close()
 		res, err := bc.ListNeighbor(context.Background(), &pb.ListNeighborRequest{})
 		if err != nil {
-			panic(err)
+			log.Println(err)
+			os.Exit(1)
 		}
 		fmt.Println("BGP Neighbors")
 		for _, neighbor := range res.Neighbors {
-			showNeighborInfor(neighbor)
+			showNeighborInfo(neighbor)
 			fmt.Println()
 		}
 	},
@@ -83,15 +117,18 @@ var getNeighborSubCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		asn, err := cmd.Flags().GetInt("as")
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			os.Exit(1)
 		}
 		routerId, err := cmd.Flags().GetString("routerid")
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			os.Exit(1)
 		}
 		addr, err := cmd.Flags().GetString("address")
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			os.Exit(1)
 		}
 		if asn == 0 && routerId == "" && addr == "" {
 			fmt.Println("Please specify at least an identifier(AS or router id or address)")
@@ -105,16 +142,32 @@ var getNeighborSubCmd = &cobra.Command{
 			PeerAddress: &addr,
 		})
 		if err != nil {
-			panic(err)
+			log.Println(err)
+			os.Exit(1)
 		}
 
 		fmt.Println("BGP Neighbor")
-		showNeighborInfor(res.Neighbor)
+		showNeighborInfo(res.Neighbor)
 	},
 }
 
-func showNeighborInfor(info *pb.NeighborInfo) {
+func showNeighborInfo(info *pb.NeighborInfo) {
 	fmt.Printf("  neighbor address %s\n", info.GetAddress())
 	fmt.Printf("  remote AS %d\n", info.GetAs())
 	fmt.Printf("  router id %s\n", info.GetRouterId())
+}
+
+var routerIdSubCmd = &cobra.Command{
+	Use:   "router-id",
+	Short: "set bgp router id",
+	Args:  cobra.MinimumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		net.ParseIP(args[0])
+		bc := newBgpClient()
+		defer bc.conn.Close()
+		if _, err := bc.RouterId(context.Background(), &pb.RouterIdRequest{RouterId: args[0]}); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+	},
 }

@@ -3,6 +3,7 @@ package bgp
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/terassyi/grp/pb"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -14,6 +15,14 @@ var (
 
 func (s *server) Health(ctx context.Context, in *pb.HealthRequest) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, nil
+}
+
+func (s *server) Show(ctx context.Context, in *pb.ShowRequest) (*pb.ShowResponse, error) {
+	return &pb.ShowResponse{
+		As:       int32(s.bgp.as),
+		Port:     int32(s.bgp.port),
+		RouterId: s.bgp.routerId.String(),
+	}, nil
 }
 
 func (s *server) GetNeighbor(ctx context.Context, in *pb.GetNeighborRequest) (*pb.GetNeighborResponse, error) {
@@ -62,6 +71,27 @@ func (s *server) ListNeighbor(ctx context.Context, in *pb.ListNeighborRequest) (
 	return &pb.ListNeighborResponse{
 		Neighbors: neighbors,
 	}, nil
+}
+
+func (s *server) SetAS(ctx context.Context, in *pb.SetASRequest) (*emptypb.Empty, error) {
+	if in.As == 0 {
+		return &emptypb.Empty{}, fmt.Errorf("Invalid AS Number")
+	}
+	if err := s.bgp.setAS(int(in.As)); err != nil {
+		return &emptypb.Empty{}, err
+	}
+	return &emptypb.Empty{}, nil
+}
+
+func (s *server) RouterId(ctx context.Context, in *pb.RouterIdRequest) (*emptypb.Empty, error) {
+	if err := s.bgp.setRouterId(in.RouterId); err != nil {
+		return &emptypb.Empty{}, err
+	}
+	return &emptypb.Empty{}, nil
+}
+
+func (s *server) RemoteAS(ctx context.Context, in *pb.RemoteASRequest) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
 }
 
 func (s *server) Network(ctx context.Context, in *pb.NetworkRequest) (*emptypb.Empty, error) {

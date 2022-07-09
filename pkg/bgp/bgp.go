@@ -45,6 +45,7 @@ type BgpConfig struct {
 
 var (
 	ErrASNumberIsRequired         error = errors.New("AS Number is required.")
+	ErrASNumberIsAlreadySet       error = errors.New("AS Number is already set.")
 	ErrInvalidBgpState            error = errors.New("Invalid BGP state.")
 	ErrPeerAlreadyRegistered      error = errors.New("Peer already registered.")
 	ErrInvalidNeighborAddress     error = errors.New("Invalid neighbor address.")
@@ -85,7 +86,7 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 
 func FromConfig(conf *Config, logLevel int, logOut string) (*Bgp, error) {
 	port := PORT
-	if conf.Port != port {
+	if conf.Port != 0 {
 		port = conf.Port
 	}
 	b, err := New(port, logLevel, logOut)
@@ -112,7 +113,14 @@ func FromConfig(conf *Config, logLevel int, logOut string) (*Bgp, error) {
 	return b, nil
 }
 
+func (b *Bgp) getInfo() {
+
+}
+
 func (b *Bgp) setAS(as int) error {
+	if b.as != 0 {
+		return ErrASNumberIsAlreadySet
+	}
 	b.as = as
 	b.logger.Infof("AS Number: %d", as)
 	return nil

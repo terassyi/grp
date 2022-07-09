@@ -27,7 +27,9 @@ func init() {
 	)
 	bgpCmd.AddCommand(
 		healthSubCmd,
+		showSubCmd,
 		neighborSubCmd,
+		routerIdSubCmd,
 	)
 	rootCmd.AddCommand(bgpCmd)
 }

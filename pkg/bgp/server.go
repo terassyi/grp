@@ -17,10 +17,21 @@ type server struct {
 	bgp       *Bgp
 	apiServer *grpc.Server
 	pb.UnimplementedBgpApiServer
-	signalCh chan os.Signal
 }
 
-func NewServer(config *Config, logLevel int, logOut string) (*server, error) {
+func NewServer(level int, out string) (*server, error) {
+	b, err := New(PORT, level, out)
+	if err != nil {
+		return nil, err
+	}
+	grpcServer := grpc.NewServer()
+	return &server{
+		bgp:       b,
+		apiServer: grpcServer,
+	}, nil
+}
+
+func NewServerWithConfig(config *Config, logLevel int, logOut string) (*server, error) {
 	b, err := FromConfig(config, logLevel, logOut)
 	if err != nil {
 		return nil, err

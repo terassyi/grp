@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/pkg/bgp"
@@ -20,23 +18,34 @@ var bgpCmd = &cobra.Command{
 		if err != nil {
 			log.Fatal(err)
 		}
-		// level, err := cmd.Flags().GetInt("log")
-		// if err != nil {
-		// 	log.Fatal(err)
-		// }
-		// out, err := cmd.Flags().GetString("log-path")
-		// if err != nil {
-		// 	log.Fatal(err)
-		// }
+		level, err := cmd.Flags().GetInt("log")
+		if err != nil {
+			log.Fatal(err)
+		}
+		out, err := cmd.Flags().GetString("log-path")
+		if err != nil {
+			log.Fatal(err)
+		}
 		if file == "" {
-			fmt.Println("please specify config file.")
-			os.Exit(1)
+			server, err := bgp.NewServer(level, out)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if err := server.Run(context.Background()); err != nil {
+				log.Fatal(err)
+			}
 		}
 		conf, err := config.Load(file)
 		if err != nil {
 			log.Fatal(err)
 		}
-		server, err := bgp.NewServer(&conf.Bgp, conf.Level, conf.Out)
+		if level != 0 {
+			conf.Level = level
+		}
+		if out != "" {
+			conf.Out = out
+		}
+		server, err := bgp.NewServerWithConfig(&conf.Bgp, conf.Level, conf.Out)
 		if err != nil {
 			log.Fatal(err)
 		}
