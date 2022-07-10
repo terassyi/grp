@@ -1,3 +1,5 @@
+PROJECT := github.com/terassyi/grp
+
 GOCMD := go
 GOBUILD := $(GOCMD) build
 GOTEST := $(GOCMD) test
@@ -13,8 +15,6 @@ COMPOSE := docker compose
 BGP_TEST_COMPOSE := ./scenario/bgp-test/docker-compose.dev.yml
 BGP_TEST_GRP_CONTAINER_NAME := pe1
 
-BGP_DEV_COMPOSE := ./scenario/bgp/docker-compose.dev.yml
-
 TINET_SPEC := ./scenario/bgp/tinet-spec.yml
 TINET_FRR_SPEC := ./scenario/bgp/tinet-frr-spec.yml
 
@@ -23,27 +23,18 @@ build:
 	$(GOBUILD) -o $(GRP_BINARY) $(GRP_DIR)
 	$(GOBUILD) -o $(GRPD_BINARY) $(GRPD_DIR)
 
+.PHONY: protogen
+protogen:
+	protoc -Ipb --go_out=module=$(PROJECT)/pb:pb bgp.proto
+	protoc -Ipb --go-grpc_out=module=$(PROJECT)/pb:pb bgp.proto
+
 .PHONY: up
 up:
 	$(COMPOSE) -f $(BGP_TEST_COMPOSE) up -d 
 
-.PHONY: dev-up
-dev-up:
-	$(COMPOSE) -f $(BGP_DEV_COMPOSE) up -d 
-	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec r0 /tmp/r0/bgp-100.sh
-	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec r1 /tmp/r1/bgp-200.sh
-	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec r2 /tmp/r2/bgp-300.sh 
-	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec r3 /tmp/r3/bgp-400.sh
-	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec c0 /tmp/c0/setup.sh
-	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec c1 /tmp/c1/setup.sh
-
 .PHONY: down
 down:
 	$(COMPOSE) -f $(BGP_TEST_COMPOSE) down 
-
-.PHONY: dev-down
-dev-down:
-	$(COMPOSE) -f $(BGP_DEV_COMPOSE) down 
 
 .PHONY: test
 test:
@@ -72,9 +63,6 @@ clean: down
 	$(GOCLEAN)
 	rm $(GRP_BINARY)
 	rm $(GRPD_BINARY)
-
-exec.%:
-	$(COMPOSE) -f $(BGP_DEV_COMPOSE) exec ${@:exec.%=%} bash
 
 tinet.%:
 	@echo "# tinet"

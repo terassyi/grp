@@ -9,8 +9,8 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "grp [command]",
-	Short: "GRP(Go Routing Protocol)",
+	Use:   "grpd [command]",
+	Short: "GRP(Go Routing Protocol) daemon",
 }
 
 func init() {
@@ -32,7 +32,7 @@ func init() {
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Printf("GRP Error\n\n%s", err)
+		fmt.Printf("GRPd Error\n\n%s", err)
 		os.Exit(1)
 	}
 }

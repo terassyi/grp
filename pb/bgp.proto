@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package grp;
+
+option go_package = "github.com/terassyi/grp/pb";
+
+import "google/protobuf/empty.proto";
+
+service BgpApi {
+	rpc Health(HealthRequest) returns (google.protobuf.Empty);
+
+	rpc Show(ShowRequest) returns (ShowResponse);
+	rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
+	rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
+
+	rpc SetAS(SetASRequest) returns (google.protobuf.Empty);
+	rpc RouterId(RouterIdRequest) returns (google.protobuf.Empty);
+
+	rpc RemoteAS(RemoteASRequest) returns (google.protobuf.Empty);
+	rpc Network(NetworkRequest) returns (google.protobuf.Empty);
+}
+
+enum ResultCode {
+	Ok = 0;
+	Error = 1;
+}
+
+message GrpResult {
+	ResultCode result = 1;
+	string message = 2;
+}
+
+message HealthRequest {}
+
+message ShowRequest {}
+
+message ShowResponse {
+	int32 as = 1;
+	int32 port = 2;
+	string routerId = 3;
+}
+
+message NeighborInfo {
+	uint32 as = 1;
+	string address = 2;
+	uint32 port = 3;
+	string routerId =4;
+}
+
+message GetNeighborRequest {
+	uint32 as = 1; 
+	optional string peerAddress = 2;
+	optional string routerId = 3;
+}
+
+message GetNeighborResponse {
+	NeighborInfo neighbor = 1;
+}
+
+message ListNeighborRequest {}
+
+message ListNeighborResponse {
+	repeated NeighborInfo neighbors = 1;
+}
+
+message SetASRequest {
+	int32 as = 1;
+}
+
+message RemoteASRequest {
+	string addr = 1;
+	int32 as = 2;
+}
+
+message RouterIdRequest {
+	string routerId = 1;
+}
+
+message NetworkRequest {
+	repeated string networks = 1;
+}

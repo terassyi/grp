@@ -332,6 +332,16 @@ func (l *LocRib) isntallToRib(link netlink.Link, cidr *net.IPNet, next net.IP) (
 	return rib.Get4(link, cidr.IP)
 }
 
+func (l *LocRib) Get(network string) (*Path, bool) {
+	l.mutex.RLock()
+	defer l.mutex.RUnlock()
+	p, ok := l.table[network]
+	if !ok {
+		return nil, false
+	}
+	return p, true
+}
+
 func (l *LocRib) GetAll() []*Path {
 	l.mutex.RLock()
 	defer l.mutex.RUnlock()

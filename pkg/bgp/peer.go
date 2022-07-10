@@ -113,6 +113,7 @@ import (
 //          ---------------------------------------------------------------
 
 type peer struct {
+	mutex sync.RWMutex
 	*peerInfo
 	locRib         *LocRib // reference of bgp.rib. This field is called by every peers. When handling this, we must get lock.
 	rib            *AdjRib

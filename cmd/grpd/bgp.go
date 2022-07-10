@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	"github.com/spf13/cobra"
@@ -23,27 +24,33 @@ var bgpCmd = &cobra.Command{
 		}
 		out, err := cmd.Flags().GetString("log-path")
 		if err != nil {
+			log.Fatal(err)
 		}
-		if file != "" {
-			conf, err := config.Load(file)
+		if file == "" {
+			server, err := bgp.NewServer(level, out)
 			if err != nil {
 				log.Fatal(err)
 			}
-			b, err := bgp.FromConfig(&conf.Bgp, conf.Level, conf.Out)
-			if err != nil {
+			if err := server.Run(context.Background()); err != nil {
 				log.Fatal(err)
 			}
-			if err := b.Poll(); err != nil {
-				log.Fatal(err)
-			}
-		} else {
-			b, err := bgp.New(bgp.PORT, level, out)
-			if err != nil {
-				log.Fatal(err)
-			}
-			if err := b.Poll(); err != nil {
-				log.Fatal(err)
-			}
+		}
+		conf, err := config.Load(file)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if level != 0 {
+			conf.Level = level
+		}
+		if out != "" {
+			conf.Out = out
+		}
+		server, err := bgp.NewServerWithConfig(&conf.Bgp, conf.Level, conf.Out)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := server.Run(context.Background()); err != nil {
+			log.Fatal(err)
 		}
 	},
 }

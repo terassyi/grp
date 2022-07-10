@@ -8,10 +8,10 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/terassyi/grp/pb"
 	"github.com/terassyi/grp/pkg/log"
 	"github.com/vishvananda/netlink"
 )
@@ -28,7 +28,6 @@ type Bgp struct {
 	as           int
 	port         int
 	routerId     net.IP
-	server       *server
 	peers        map[string]*peer // key: ipaddr string, value: peer struct pointer
 	locRib       *LocRib
 	adjRibIn     *AdjRibIn
@@ -46,6 +45,7 @@ type BgpConfig struct {
 
 var (
 	ErrASNumberIsRequired         error = errors.New("AS Number is required.")
+	ErrASNumberIsAlreadySet       error = errors.New("AS Number is already set.")
 	ErrInvalidBgpState            error = errors.New("Invalid BGP state.")
 	ErrPeerAlreadyRegistered      error = errors.New("Peer already registered.")
 	ErrInvalidNeighborAddress     error = errors.New("Invalid neighbor address.")
@@ -86,7 +86,7 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 
 func FromConfig(conf *Config, logLevel int, logOut string) (*Bgp, error) {
 	port := PORT
-	if conf.Port != port {
+	if conf.Port != 0 {
 		port = conf.Port
 	}
 	b, err := New(port, logLevel, logOut)
@@ -114,6 +114,9 @@ func FromConfig(conf *Config, logLevel int, logOut string) (*Bgp, error) {
 }
 
 func (b *Bgp) setAS(as int) error {
+	if b.as != 0 {
+		return ErrASNumberIsAlreadySet
+	}
 	b.as = as
 	b.logger.Infof("AS Number: %d", as)
 	return nil
@@ -143,6 +146,18 @@ func (b *Bgp) Poll() error {
 	return nil
 }
 
+func (b *Bgp) PollWithContext(ctx context.Context) error {
+	b.logger.Infoln("BGP daemon start.")
+	if err := b.poll(ctx); err != nil { // BGP daemon main routine
+		return err
+	}
+	for _, p := range b.peers {
+		go p.poll(ctx)
+		p.enqueueEvent(&bgpStart{})
+	}
+	return nil
+}
+
 func (b *Bgp) poll(ctx context.Context) error {
 	// request handling routine
 	b.logger.Infof("GRP BGP Polling Start.")
@@ -164,42 +179,43 @@ func (b *Bgp) poll(ctx context.Context) error {
 
 func (b *Bgp) requestHandle(ctx context.Context, req *Request) error {
 	b.logger.Infof("Receive request: %v\n", req)
-	switch req.Command {
-	case "neighbor":
-		if len(req.Args) != 3 {
-			return ErrInvalidBgpApiArguments
-		}
-		addr := net.ParseIP(req.Args[0])
-		as := 0
-		if req.Args[1] == "remote-as" {
-			a, err := strconv.Atoi(req.Args[2])
-			if err != nil {
-				return err
-			}
-			as = a
-		}
-		// create new peer
-		peer, err := b.registerPeer(addr, b.routerId, b.as, as, false)
+	switch req.code {
+	case requestSetAS:
+		body := req.req.(*pb.SetASRequest)
+		return b.setAS(int(body.As))
+	case requestSetRouterId:
+		body := req.req.(*pb.RouterIdRequest)
+		return b.setRouterId(body.RouterId)
+	case requestAddNeighbor:
+		body := req.req.(*pb.RemoteASRequest)
+		peerAddr := net.ParseIP(body.Addr)
+		peer, err := b.registerPeer(peerAddr, b.routerId, b.as, int(body.As), false)
 		if err != nil {
 			return err
 		}
 		go peer.poll(ctx)
-		// wait for running peer.poll goroutine
-		time.Sleep(time.Second)
-		// enqueue BGP start event
-		if err := peer.enqueueEvent(&bgpStart{}); err != nil {
+		peer.enqueueEvent(&bgpStart{})
+		return nil
+	case requestAddNetwork:
+		body := req.req.(*pb.NetworkRequest)
+		if err := b.originateRoutes(body.Networks); err != nil {
 			return err
 		}
-	case "network":
-		if len(req.Args) < 1 {
-			return ErrInvalidBgpApiArguments
+		pathes := make([]*Path, 0, len(body.Networks))
+		for _, network := range body.Networks {
+			p, ok := b.locRib.Get(network)
+			if !ok {
+				continue
+			}
+			pathes = append(pathes, p)
 		}
-
+		for _, p := range b.peers {
+			p.enqueueEvent(&triggerDissemination{pathes: pathes, withdrawn: false})
+		}
+		return nil
 	default:
 		return ErrUnknownBgpApiRequest
 	}
-
-	return nil
 }
 
 func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) (*peer, error) {
@@ -265,4 +281,13 @@ func (b *Bgp) originateRoutes(networks []string) error {
 		}
 	}
 	return nil
+}
+
+func (b *Bgp) LookupPeerWithAS(as int) (*peer, bool) {
+	for _, p := range b.peers {
+		if p.neighbor.as == as {
+			return p, true
+		}
+	}
+	return nil, false
 }
