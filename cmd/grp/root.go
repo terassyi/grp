@@ -24,12 +24,14 @@ func init() {
 	neighborSubCmd.AddCommand(
 		getNeighborSubCmd,
 		listNeighborSubCmd,
+		remoteASSubCmd,
 	)
 	bgpCmd.AddCommand(
 		healthSubCmd,
 		showSubCmd,
 		neighborSubCmd,
 		routerIdSubCmd,
+		networkSubCmd,
 	)
 	rootCmd.AddCommand(bgpCmd)
 }

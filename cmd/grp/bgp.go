@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/pb"
@@ -166,6 +167,52 @@ var routerIdSubCmd = &cobra.Command{
 		bc := newBgpClient()
 		defer bc.conn.Close()
 		if _, err := bc.RouterId(context.Background(), &pb.RouterIdRequest{RouterId: args[0]}); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+	},
+}
+
+var remoteASSubCmd = &cobra.Command{
+	Use:   "add",
+	Short: "add remote AS(specify address and AS number)",
+	Args:  cobra.MatchAll(cobra.MaximumNArgs(2), cobra.MaximumNArgs(2)),
+	Run: func(cmd *cobra.Command, args []string) {
+		var (
+			as   int
+			addr string
+		)
+		for _, a := range args {
+			if strings.Contains(a, ".") {
+				addr = a
+			} else {
+				n, err := strconv.Atoi(a)
+				if err != nil {
+					fmt.Println(err)
+					os.Exit(1)
+				}
+				as = n
+			}
+		}
+		bc := newBgpClient()
+		defer bc.conn.Close()
+		if _, err := bc.RemoteAS(context.Background(), &pb.RemoteASRequest{
+			As:   int32(as),
+			Addr: addr,
+		}); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+	},
+}
+
+var networkSubCmd = &cobra.Command{
+	Use:   "network",
+	Short: "add network to advertise as a local originated route",
+	Run: func(cmd *cobra.Command, args []string) {
+		bc := newBgpClient()
+		defer bc.conn.Close()
+		if _, err := bc.Network(context.Background(), &pb.NetworkRequest{Networks: args}); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}

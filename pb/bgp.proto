@@ -67,10 +67,9 @@ message SetASRequest {
 	int32 as = 1;
 }
 
-
-
 message RemoteASRequest {
-	int32 as = 1;
+	string addr = 1;
+	int32 as = 2;
 }
 
 message RouterIdRequest {
@@ -78,5 +77,5 @@ message RouterIdRequest {
 }
 
 message NetworkRequest {
-	string network = 1;
+	repeated string networks = 1;
 }

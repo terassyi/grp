@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"strings"
 
 	"github.com/terassyi/grp/pb"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -12,6 +14,26 @@ import (
 var (
 	ErrNeighborNotFound error = errors.New("Neighbor is not found")
 )
+
+type Request struct {
+	code requestCode
+	req  gRPCRequest
+}
+
+type requestCode uint8
+
+const (
+	requestSetAS       = iota
+	requestSetRouterId = iota
+	requestAddNeighbor = iota
+	requestAddNetwork  = iota
+)
+
+type gRPCRequest interface {
+	Reset()
+	String() string
+	ProtoMessage()
+}
 
 func (s *server) Health(ctx context.Context, in *pb.HealthRequest) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, nil
@@ -75,25 +97,64 @@ func (s *server) ListNeighbor(ctx context.Context, in *pb.ListNeighborRequest) (
 
 func (s *server) SetAS(ctx context.Context, in *pb.SetASRequest) (*emptypb.Empty, error) {
 	if in.As == 0 {
-		return &emptypb.Empty{}, fmt.Errorf("Invalid AS Number")
+		return &emptypb.Empty{}, errors.New("Invalid AS Number")
 	}
-	if err := s.bgp.setAS(int(in.As)); err != nil {
-		return &emptypb.Empty{}, err
+	if s.bgp.as != 0 {
+		return &emptypb.Empty{}, errors.New("AS Number is already set")
+	}
+	s.bgp.requestQueue <- &Request{
+		code: requestSetAS,
+		req:  in,
 	}
 	return &emptypb.Empty{}, nil
 }
 
 func (s *server) RouterId(ctx context.Context, in *pb.RouterIdRequest) (*emptypb.Empty, error) {
-	if err := s.bgp.setRouterId(in.RouterId); err != nil {
-		return &emptypb.Empty{}, err
+	if !strings.Contains(in.RouterId, ".") {
+		return &emptypb.Empty{}, errors.New("Invalid router id format")
+	}
+	split := strings.Split(in.RouterId, ".")
+	if len(split) != 4 {
+		return &emptypb.Empty{}, errors.New("Invalid router id format")
+	}
+	s.bgp.requestQueue <- &Request{
+		code: requestSetRouterId,
+		req:  in,
 	}
 	return &emptypb.Empty{}, nil
 }
 
 func (s *server) RemoteAS(ctx context.Context, in *pb.RemoteASRequest) (*emptypb.Empty, error) {
+	addr := net.ParseIP(in.Addr)
+	_, _, err := lookupLocalAddr(addr)
+	if err != nil {
+		return &emptypb.Empty{}, err
+	}
+	_, ok := s.bgp.peers[in.Addr]
+	if ok {
+		return &emptypb.Empty{}, fmt.Errorf("Peer(addr=%s) is already registered", in.Addr)
+	}
+	_, ook := s.bgp.LookupPeerWithAS(int(in.As))
+	if ook {
+		return &emptypb.Empty{}, fmt.Errorf("Peer(AS=%d) is already registered", in.As)
+	}
+	s.bgp.requestQueue <- &Request{
+		code: requestAddNeighbor,
+		req:  in,
+	}
 	return &emptypb.Empty{}, nil
 }
 
 func (s *server) Network(ctx context.Context, in *pb.NetworkRequest) (*emptypb.Empty, error) {
+	for _, network := range in.Networks {
+		_, _, err := net.ParseCIDR(network)
+		if err != nil {
+			return &emptypb.Empty{}, err
+		}
+	}
+	s.bgp.requestQueue <- &Request{
+		code: requestAddNetwork,
+		req:  in,
+	}
 	return &emptypb.Empty{}, nil
 }
