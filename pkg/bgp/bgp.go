@@ -66,6 +66,7 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 	if err != nil {
 		return nil, err
 	}
+	logger.SetProtocol("bgp")
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh,
 		syscall.SIGINT,
@@ -118,18 +119,18 @@ func (b *Bgp) setAS(as int) error {
 		return ErrASNumberIsAlreadySet
 	}
 	b.as = as
-	b.logger.Infof("AS Number: %d", as)
+	b.logger.Info("AS Number: %d", as)
 	return nil
 }
 
 func (b *Bgp) setRouterId(routerId string) error {
 	b.routerId = net.ParseIP(routerId)
-	b.logger.Infof("Router ID: %s", routerId)
+	b.logger.Info("Router ID: %s", routerId)
 	return nil
 }
 
 func (b *Bgp) Poll() error {
-	b.logger.Infoln("BGP daemon start.")
+	b.logger.Info("BGP daemon start.")
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := b.poll(ctx); err != nil { // BGP daemon main routine
 		cancel()
@@ -141,13 +142,13 @@ func (b *Bgp) Poll() error {
 		p.enqueueEvent(&bgpStart{})
 	}
 	<-b.signalCh
-	b.logger.Infof("Receive a signal. Terminate GRP BGP daemon.")
+	b.logger.Info("Receive a signal. Terminate GRP BGP daemon.")
 	cancel()
 	return nil
 }
 
 func (b *Bgp) PollWithContext(ctx context.Context) error {
-	b.logger.Infoln("BGP daemon start.")
+	b.logger.Info("BGP daemon start.")
 	if err := b.poll(ctx); err != nil { // BGP daemon main routine
 		return err
 	}
@@ -160,13 +161,13 @@ func (b *Bgp) PollWithContext(ctx context.Context) error {
 
 func (b *Bgp) poll(ctx context.Context) error {
 	// request handling routine
-	b.logger.Infof("GRP BGP Polling Start.")
+	b.logger.Info("GRP BGP Polling Start.")
 	go func() {
 		for {
 			select {
 			case req := <-b.requestQueue:
 				if err := b.requestHandle(ctx, req); err != nil {
-					b.logger.Errorf("Request handler: %s", err)
+					b.logger.Err("Request handler: %s", err)
 				}
 			case <-ctx.Done():
 				return
@@ -178,7 +179,7 @@ func (b *Bgp) poll(ctx context.Context) error {
 }
 
 func (b *Bgp) requestHandle(ctx context.Context, req *Request) error {
-	b.logger.Infof("Receive request: %v\n", req)
+	b.logger.Info("Receive request: %v\n", req)
 	switch req.code {
 	case requestSetAS:
 		body := req.req.(*pb.SetASRequest)
@@ -239,7 +240,7 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 	if _, ok := b.peers[addr.String()]; ok && !force {
 		return nil, ErrPeerAlreadyRegistered
 	}
-	p.logger.Infof("Register peer local->%s remote->%s ASN->%d", local, addr, peerAS)
+	p.logger.Info("Register peer local->%s remote->%s ASN->%d", local, addr, peerAS)
 	b.peers[addr.String()] = p
 	return p, nil
 }
@@ -250,7 +251,7 @@ func (b *Bgp) pollRib(ctx context.Context) {
 		case pathes := <-b.locRib.queue:
 			for _, path := range pathes {
 				if err := b.locRib.Insert(path); err != nil {
-					b.logger.Errorf("pollRib: ", err)
+					b.logger.Err("pollRib: ", err)
 				}
 			}
 			for _, peer := range b.peers {
@@ -263,7 +264,7 @@ func (b *Bgp) pollRib(ctx context.Context) {
 }
 
 func (b *Bgp) originateRoutes(networks []string) error {
-	b.logger.Infof("Originate local routes: %v", networks)
+	b.logger.Info("Originate local routes: %v", networks)
 	for _, network := range networks {
 		path, err := CreateLocalPath(network, b.id, b.as)
 		if err != nil {
