@@ -21,12 +21,15 @@ type Logger interface {
 	SetProtocol(protocol string)
 	Set(key, value string)
 	With() Logger
+	Level() Level
+	Path() string
 }
 
 type logger struct {
 	zerolog.Logger
 	level    Level
 	out      io.Writer
+	path     string
 	protocol string
 }
 
@@ -39,12 +42,28 @@ const (
 	Error Level = iota
 )
 
+func (l Level) String() string {
+	switch l {
+	case NoLog:
+		return "NoLog"
+	case Info:
+		return "Info"
+	case Warn:
+		return "Warn"
+	case Error:
+		return "Error"
+	default:
+		return "Unknown"
+	}
+}
+
 func New(level Level, out string) (Logger, error) {
 	if level > Error {
 		return nil, fmt.Errorf("New logger: Invalid log level.")
 	}
 	l := &logger{
 		level: level,
+		path:  out,
 	}
 	switch out {
 	case "stdout":
@@ -54,7 +73,10 @@ func New(level Level, out string) (Logger, error) {
 	case "":
 		l.out = ioutil.Discard
 	default:
-		ok, err := filepath.Match(BASE_PATH + "/*", out)
+		if err := prepareLogDir(); err != nil {
+			return nil, err
+		}
+		ok, err := filepath.Match(BASE_PATH+"/*", out)
 		if err != nil {
 			return nil, fmt.Errorf("New logger: %w", err)
 		}
@@ -69,7 +91,7 @@ func New(level Level, out string) (Logger, error) {
 	}
 	// output := zerolog.ConsoleWriter{Out: l.out, TimeFormat: "2006-01-02 15:04:050"}
 	// l.Logger = zerolog.New(output).With().Timestamp().Logger()
-	l.Logger = zerolog.New(l.out).With().Timestamp().Logger()
+	l.Logger = zerolog.New(l.out)
 	return l, nil
 }
 
@@ -107,4 +129,16 @@ func (l *logger) With() Logger {
 		protocol: l.protocol,
 		Logger:   zerolog.New(l.out).With().Timestamp().Logger().With().Str("protocol", l.protocol).Logger(),
 	}
+}
+
+func (l *logger) Level() Level {
+	return l.level
+}
+
+func (l *logger) Path() string {
+	return l.path
+}
+
+func prepareLogDir() error {
+	return os.MkdirAll(BASE_PATH, 0644)
 }

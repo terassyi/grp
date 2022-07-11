@@ -45,7 +45,7 @@ var bgpCmd = &cobra.Command{
 		if out != "" {
 			conf.Out = out
 		}
-		server, err := bgp.NewServerWithConfig(&conf.Bgp, conf.Level, conf.Out)
+		server, err := bgp.NewServerWithConfig(conf.Bgp, conf.Level, conf.Out)
 		if err != nil {
 			log.Fatal(err)
 		}

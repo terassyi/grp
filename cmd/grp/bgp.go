@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -9,9 +10,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hpcloud/tail"
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/pb"
 	"github.com/terassyi/grp/pkg/constants"
+	grpLog "github.com/terassyi/grp/pkg/log"
 	"google.golang.org/grpc"
 )
 
@@ -215,6 +218,78 @@ var networkSubCmd = &cobra.Command{
 		if _, err := bc.Network(context.Background(), &pb.NetworkRequest{Networks: args}); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
+		}
+	},
+}
+
+var logSubCmd = &cobra.Command{
+	Use:   "logs",
+	Short: "show bgp logs",
+	Run: func(cmd *cobra.Command, args []string) {
+		bc := newBgpClient()
+		defer bc.conn.Close()
+		res, err := bc.GetLogPath(context.Background(), &pb.GetLogPathRequest{})
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		if res.Path == "stdout" {
+			fmt.Printf("Logs are output to standard output with level %s.\n", grpLog.Level(res.Level))
+			os.Exit(0)
+		}
+		if res.Path == "stderr" {
+			fmt.Printf("Logs are output to standard error(stderr) with level %s\n.", grpLog.Level(res.Level))
+			os.Exit(0)
+		}
+		if res.Path == "" {
+			fmt.Println("Logs are not outpute")
+			os.Exit(0)
+		}
+		follow, err := cmd.Flags().GetBool("follow")
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		plain, err := cmd.Flags().GetBool("plain-text")
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		fmt.Printf("BGP Logs Output %s with level %s\n\n", res.Path, grpLog.Level(res.Level))
+		t, err := tail.TailFile(res.Path, tail.Config{Follow: follow})
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		formatPlainText := func(line string) (string, error) {
+			type LogJson struct {
+				Time     string  `json:"time"`
+				Level    string  `json:"level"`
+				Protocol string  `json:"protocol"`
+				AS       *int    `json:"remote-as,omitempty"`
+				Address  *string `json:"address,omitempty"`
+				Message  string  `json:"message"`
+			}
+			lj := &LogJson{}
+			if err := json.Unmarshal([]byte(line), lj); err != nil {
+				return "", err
+			}
+			base := fmt.Sprintf("TIME:%s | LEVEL:%s | PROTOCOL:%s | ", lj.Time, lj.Level, lj.Protocol)
+			if lj.AS != nil {
+				base += fmt.Sprintf("REMOTE-AS:%d | ADDRESS:%s | ", *lj.AS, *lj.Address)
+			}
+			return fmt.Sprintf("%sMESSAGE:%s", base, lj.Message), nil
+		}
+		for line := range t.Lines {
+			if plain {
+				l, err := formatPlainText(line.Text)
+				if err != nil {
+					fmt.Println(err)
+					os.Exit(1)
+				}
+				fmt.Println(l)
+			}
+			fmt.Println(line.Text)
 		}
 	},
 }

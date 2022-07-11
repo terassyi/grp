@@ -12,13 +12,13 @@ import (
 )
 
 type Config struct {
-	Log `json:"log" yaml:"log"`
-	Bgp bgp.Config `json:"bgp,omitempty" yaml:"bgp,omitempty"`
+	*Log `json:"log,omitempty" yaml:"log,omitempty"`
+	Bgp  *bgp.Config `json:"bgp,omitempty" yaml:"bgp,omitempty"`
 }
 
 type Log struct {
 	Level int    `json:"level" yaml:"level"`
-	Out   string `json:"out" yaml:"out"`
+	Out   string `json:"out,omitempty" yaml:"out,omitempty"`
 }
 
 func loadConfig(data []byte, ext string) (*Config, error) {
@@ -52,5 +52,19 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return loadConfig(data, ext[1:])
+	conf, err := loadConfig(data, ext[1:])
+	if err != nil {
+		return nil, err
+	}
+	proto := ""
+	if conf.Bgp != nil {
+		proto = "bgp"
+	}
+	if conf.Log == nil {
+		conf.Log = &Log{
+			Level: 1,
+			Out:   fmt.Sprintf("/var/log/grp/%s", proto),
+		}
+	}
+	return conf, nil
 }

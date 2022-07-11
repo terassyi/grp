@@ -26,7 +26,10 @@ func init() {
 		listNeighborSubCmd,
 		remoteASSubCmd,
 	)
+	logSubCmd.Flags().BoolP("follow", "f", false, "follow logs")
+	logSubCmd.Flags().BoolP("p", "plain-text", false, "plain text format")
 	bgpCmd.AddCommand(
+		logSubCmd,
 		healthSubCmd,
 		showSubCmd,
 		neighborSubCmd,

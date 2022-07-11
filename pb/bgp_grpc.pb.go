@@ -24,6 +24,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type BgpApiClient interface {
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	GetLogPath(ctx context.Context, in *GetLogPathRequest, opts ...grpc.CallOption) (*GetLogPathResponse, error)
 	Show(ctx context.Context, in *ShowRequest, opts ...grpc.CallOption) (*ShowResponse, error)
 	GetNeighbor(ctx context.Context, in *GetNeighborRequest, opts ...grpc.CallOption) (*GetNeighborResponse, error)
 	ListNeighbor(ctx context.Context, in *ListNeighborRequest, opts ...grpc.CallOption) (*ListNeighborResponse, error)
@@ -44,6 +45,15 @@ func NewBgpApiClient(cc grpc.ClientConnInterface) BgpApiClient {
 func (c *bgpApiClient) Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
 	out := new(empty.Empty)
 	err := c.cc.Invoke(ctx, "/grp.BgpApi/Health", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *bgpApiClient) GetLogPath(ctx context.Context, in *GetLogPathRequest, opts ...grpc.CallOption) (*GetLogPathResponse, error) {
+	out := new(GetLogPathResponse)
+	err := c.cc.Invoke(ctx, "/grp.BgpApi/GetLogPath", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +128,7 @@ func (c *bgpApiClient) Network(ctx context.Context, in *NetworkRequest, opts ...
 // for forward compatibility
 type BgpApiServer interface {
 	Health(context.Context, *HealthRequest) (*empty.Empty, error)
+	GetLogPath(context.Context, *GetLogPathRequest) (*GetLogPathResponse, error)
 	Show(context.Context, *ShowRequest) (*ShowResponse, error)
 	GetNeighbor(context.Context, *GetNeighborRequest) (*GetNeighborResponse, error)
 	ListNeighbor(context.Context, *ListNeighborRequest) (*ListNeighborResponse, error)
@@ -134,6 +145,9 @@ type UnimplementedBgpApiServer struct {
 
 func (UnimplementedBgpApiServer) Health(context.Context, *HealthRequest) (*empty.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Health not implemented")
+}
+func (UnimplementedBgpApiServer) GetLogPath(context.Context, *GetLogPathRequest) (*GetLogPathResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLogPath not implemented")
 }
 func (UnimplementedBgpApiServer) Show(context.Context, *ShowRequest) (*ShowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Show not implemented")
@@ -183,6 +197,24 @@ func _BgpApi_Health_Handler(srv interface{}, ctx context.Context, dec func(inter
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(BgpApiServer).Health(ctx, req.(*HealthRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BgpApi_GetLogPath_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetLogPathRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BgpApiServer).GetLogPath(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/grp.BgpApi/GetLogPath",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BgpApiServer).GetLogPath(ctx, req.(*GetLogPathRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -323,6 +355,10 @@ var BgpApi_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Health",
 			Handler:    _BgpApi_Health_Handler,
+		},
+		{
+			MethodName: "GetLogPath",
+			Handler:    _BgpApi_GetLogPath_Handler,
 		},
 		{
 			MethodName: "Show",
