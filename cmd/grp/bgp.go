@@ -7,8 +7,10 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/hpcloud/tail"
 	"github.com/spf13/cobra"
@@ -226,6 +228,14 @@ var logSubCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "show bgp logs",
 	Run: func(cmd *cobra.Command, args []string) {
+		type LogJson struct {
+			Time     string  `json:"time"`
+			Level    string  `json:"level"`
+			Protocol string  `json:"protocol"`
+			AS       *string `json:"remote-as,omitempty"`
+			Address  *string `json:"address,omitempty"`
+			Message  string  `json:"message"`
+		}
 		bc := newBgpClient()
 		defer bc.conn.Close()
 		res, err := bc.GetLogPath(context.Background(), &pb.GetLogPathRequest{})
@@ -256,25 +266,25 @@ var logSubCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		fmt.Printf("BGP Logs Output %s with level %s\n\n", res.Path, grpLog.Level(res.Level))
-		t, err := tail.TailFile(res.Path, tail.Config{Follow: follow})
+		t, err := tail.TailFile(res.Path, tail.Config{
+			ReOpen: true,
+			Poll:   true,
+			Follow: follow,
+		})
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
-		type LogJson struct {
-			Time     string  `json:"time"`
-			Level    string  `json:"level"`
-			Protocol string  `json:"protocol"`
-			AS       *int    `json:"remote-as,omitempty"`
-			Address  *string `json:"address,omitempty"`
-			Message  string  `json:"message"`
-		}
+		ctrlC := make(chan os.Signal, 1)
+		signal.Notify(ctrlC,
+			syscall.SIGINT,
+			syscall.SIGTERM)
 		formatPlainText := func(lj *LogJson) (string, error) {
-			base := fmt.Sprintf("TIME:%s | LEVEL:%s | PROTOCOL:%s | ", lj.Time, lj.Level, lj.Protocol)
+			base := fmt.Sprintf("%s|%s|%s|", lj.Time, lj.Level, lj.Protocol)
 			if lj.AS != nil {
-				base += fmt.Sprintf("REMOTE-AS:%d | ADDRESS:%s | ", *lj.AS, *lj.Address)
+				base += fmt.Sprintf("%s|%s|", *lj.AS, *lj.Address)
 			}
-			return fmt.Sprintf("%sMESSAGE:%s", base, lj.Message), nil
+			return fmt.Sprintf("%s%s", base, lj.Message), nil
 		}
 		filterASs := make([]int, 0)
 		for _, a := range args {
@@ -286,29 +296,43 @@ var logSubCmd = &cobra.Command{
 			}
 			filterASs = append(filterASs, i)
 		}
-		for line := range t.Lines {
-			lj := &LogJson{}
-			if err := json.Unmarshal([]byte(line.Text), lj); err != nil {
-				fmt.Println(err)
-				os.Exit(1)
-			}
-			if lj.AS != nil {
-				for _, as := range filterASs {
-					if as == *lj.AS {
-						break
+		go func() {
+			for line := range t.Lines {
+				lj := &LogJson{}
+				if err := json.Unmarshal([]byte(line.Text), lj); err != nil {
+					fmt.Printf("parse json formated log:%v\n", err)
+					continue
+				}
+				flag := true
+				if lj.AS != nil {
+					flag = func() bool {
+						for _, as := range filterASs {
+							a, err := strconv.Atoi(*lj.AS)
+							if err != nil {
+								fmt.Printf("parse remote-as:%v\n", err)
+								continue
+							}
+							if as != a {
+								return false
+							}
+						}
+						return true
+					}()
+				}
+				if flag {
+					if plain {
+						l, err := formatPlainText(lj)
+						if err != nil {
+							fmt.Println(err)
+							continue
+						}
+						fmt.Println(l)
+					} else {
+						fmt.Println(line.Text)
 					}
 				}
-				continue
 			}
-			if plain {
-				l, err := formatPlainText(lj)
-				if err != nil {
-					fmt.Println(err)
-					os.Exit(1)
-				}
-				fmt.Println(l)
-			}
-			fmt.Println(line.Text)
-		}
+		}()
+		<-ctrlC
 	},
 }

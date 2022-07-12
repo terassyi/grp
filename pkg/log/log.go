@@ -83,15 +83,13 @@ func New(level Level, out string) (Logger, error) {
 		if !ok {
 			return nil, fmt.Errorf("New logger: Invalid output path %s.\n  Output path must be under %s", out, BASE_PATH)
 		}
-		file, err := os.OpenFile(out, os.O_CREATE|os.O_RDWR, 0664)
+		file, err := os.OpenFile(out, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
 		if err != nil {
 			return nil, fmt.Errorf("New logger: %w", err)
 		}
 		l.out = file
 	}
-	// output := zerolog.ConsoleWriter{Out: l.out, TimeFormat: "2006-01-02 15:04:050"}
-	// l.Logger = zerolog.New(output).With().Timestamp().Logger()
-	l.Logger = zerolog.New(l.out)
+	l.Logger = zerolog.New(l.out).With().Timestamp().Logger()
 	return l, nil
 }
 
