@@ -261,28 +261,47 @@ var logSubCmd = &cobra.Command{
 			fmt.Println(err)
 			os.Exit(1)
 		}
-		formatPlainText := func(line string) (string, error) {
-			type LogJson struct {
-				Time     string  `json:"time"`
-				Level    string  `json:"level"`
-				Protocol string  `json:"protocol"`
-				AS       *int    `json:"remote-as,omitempty"`
-				Address  *string `json:"address,omitempty"`
-				Message  string  `json:"message"`
-			}
-			lj := &LogJson{}
-			if err := json.Unmarshal([]byte(line), lj); err != nil {
-				return "", err
-			}
+		type LogJson struct {
+			Time     string  `json:"time"`
+			Level    string  `json:"level"`
+			Protocol string  `json:"protocol"`
+			AS       *int    `json:"remote-as,omitempty"`
+			Address  *string `json:"address,omitempty"`
+			Message  string  `json:"message"`
+		}
+		formatPlainText := func(lj *LogJson) (string, error) {
 			base := fmt.Sprintf("TIME:%s | LEVEL:%s | PROTOCOL:%s | ", lj.Time, lj.Level, lj.Protocol)
 			if lj.AS != nil {
 				base += fmt.Sprintf("REMOTE-AS:%d | ADDRESS:%s | ", *lj.AS, *lj.Address)
 			}
 			return fmt.Sprintf("%sMESSAGE:%s", base, lj.Message), nil
 		}
+		filterASs := make([]int, 0)
+		for _, a := range args {
+			i, err := strconv.Atoi(a)
+			if err != nil {
+				fmt.Println(err)
+				fmt.Println("Please specify AS number you want to watch.")
+				os.Exit(1)
+			}
+			filterASs = append(filterASs, i)
+		}
 		for line := range t.Lines {
+			lj := &LogJson{}
+			if err := json.Unmarshal([]byte(line.Text), lj); err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			if lj.AS != nil {
+				for _, as := range filterASs {
+					if as == *lj.AS {
+						break
+					}
+				}
+				continue
+			}
 			if plain {
-				l, err := formatPlainText(line.Text)
+				l, err := formatPlainText(lj)
 				if err != nil {
 					fmt.Println(err)
 					os.Exit(1)

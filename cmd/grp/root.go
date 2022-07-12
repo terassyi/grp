@@ -27,7 +27,7 @@ func init() {
 		remoteASSubCmd,
 	)
 	logSubCmd.Flags().BoolP("follow", "f", false, "follow logs")
-	logSubCmd.Flags().BoolP("p", "plain-text", false, "plain text format")
+	logSubCmd.Flags().BoolP("plain-text", "p", false, "plain text format")
 	bgpCmd.AddCommand(
 		logSubCmd,
 		healthSubCmd,
