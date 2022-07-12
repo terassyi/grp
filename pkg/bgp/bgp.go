@@ -240,7 +240,7 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 	if _, ok := b.peers[addr.String()]; ok && !force {
 		return nil, ErrPeerAlreadyRegistered
 	}
-	p.logger.Info("Register peer local->%s remote->%s ASN->%d", local, addr, peerAS)
+	p.logInfo("Register peer local->%s remote->%s ASN->%d", local, addr, peerAS)
 	b.peers[addr.String()] = p
 	return p, nil
 }

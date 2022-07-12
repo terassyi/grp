@@ -23,10 +23,11 @@ type Logger interface {
 	With() Logger
 	Level() Level
 	Path() string
+	GetLogger() *zerolog.Logger
 }
 
 type logger struct {
-	zerolog.Logger
+	lg       zerolog.Logger
 	level    Level
 	out      io.Writer
 	path     string
@@ -89,35 +90,35 @@ func New(level Level, out string) (Logger, error) {
 		}
 		l.out = file
 	}
-	l.Logger = zerolog.New(l.out).With().Timestamp().Logger()
+	l.lg = zerolog.New(l.out).With().Timestamp().Logger()
 	return l, nil
 }
 
 func (l *logger) Info(format string, v ...any) {
 	if l.level < Warn && l.level > NoLog {
-		l.Logger.Info().Msgf(format, v...)
+		l.lg.Info().Msgf(format, v...)
 	}
 }
 
 func (l *logger) Warn(format string, v ...any) {
 	if l.level < Error && l.level > NoLog {
-		l.Logger.Warn().Msgf(format, v...)
+		l.lg.Warn().Msgf(format, v...)
 	}
 }
 
 func (l *logger) Err(format string, v ...any) {
 	if l.level > NoLog {
-		l.Logger.Error().Msgf(format, v...)
+		l.lg.Error().Msgf(format, v...)
 	}
 }
 
 func (l *logger) SetProtocol(protocol string) {
 	l.protocol = protocol
-	l.Logger = l.Logger.With().Str("protocol", protocol).Logger()
+	l.lg = l.lg.With().Str("protocol", protocol).Logger()
 }
 
 func (l *logger) Set(key, value string) {
-	l.Logger = l.Logger.With().Str(key, value).Logger()
+	l.lg = l.lg.With().Str(key, value).Logger()
 }
 
 func (l *logger) With() Logger {
@@ -125,8 +126,12 @@ func (l *logger) With() Logger {
 		level:    l.level,
 		out:      l.out,
 		protocol: l.protocol,
-		Logger:   zerolog.New(l.out).With().Timestamp().Logger().With().Str("protocol", l.protocol).Logger(),
+		lg:       zerolog.New(l.out).With().Timestamp().Logger().With().Str("protocol", l.protocol).Logger(),
 	}
+}
+
+func (l *logger) GetLogger() *zerolog.Logger {
+	return &l.lg
 }
 
 func (l *logger) Level() Level {

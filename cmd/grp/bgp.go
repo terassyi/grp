@@ -234,6 +234,7 @@ var logSubCmd = &cobra.Command{
 			Protocol string  `json:"protocol"`
 			AS       *string `json:"remote-as,omitempty"`
 			Address  *string `json:"address,omitempty"`
+			Status   *string `json:"status,omitempty"`
 			Message  string  `json:"message"`
 		}
 		bc := newBgpClient()
@@ -282,7 +283,7 @@ var logSubCmd = &cobra.Command{
 		formatPlainText := func(lj *LogJson) (string, error) {
 			base := fmt.Sprintf("%s|%s|%s|", lj.Time, lj.Level, lj.Protocol)
 			if lj.AS != nil {
-				base += fmt.Sprintf("%s|%s|", *lj.AS, *lj.Address)
+				base += fmt.Sprintf("%s|%s|%v|", *lj.AS, *lj.Address, *lj.Status)
 			}
 			return fmt.Sprintf("%s%s", base, lj.Message), nil
 		}

@@ -211,15 +211,15 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 }
 
 func (p *peer) logInfo(format string, v ...any) {
-	p.logger.Info("[%s:%d(%d) %12s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
+	p.logger.GetLogger().Info().Str("status", p.fsm.GetState().String()).Msgf(format, v...)
 }
 
 func (p *peer) logWarn(format string, v ...any) {
-	p.logger.Warn("[%s:%d(%d) %12s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
+	p.logger.GetLogger().Warn().Str("status", p.fsm.GetState().String()).Msgf(format, v...)
 }
 
 func (p *peer) logErr(format string, v ...any) {
-	p.logger.Err("[%s:%d(%d) %12s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
+	p.logger.GetLogger().Error().Str("status", p.fsm.GetState().String()).Msgf(format, v...)
 }
 
 func (p *peer) poll(ctx context.Context) {
@@ -296,7 +296,7 @@ func (p *peer) enqueueEvent(evt event) error {
 		return ErrEventQueueNotExist
 	}
 	p.eventQueue <- evt
-	p.logInfo(" <- %s", evt.typ())
+	p.logInfo(evt.typ().String())
 	return nil
 }
 
