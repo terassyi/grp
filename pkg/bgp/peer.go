@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -178,6 +179,9 @@ const (
 
 func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib, adjRibIn *AdjRibIn) *peer {
 	adjRib := &AdjRib{In: adjRibIn, Out: &AdjRibOut{mutex: &sync.RWMutex{}, table: make(map[string]*Path)}}
+	peerLogger := logger.With()
+	peerLogger.Set("remote-as", strconv.Itoa(peerAS))
+	peerLogger.Set("address", addr.String())
 	return &peer{
 		peerInfo: &peerInfo{
 			neighbor:  newNeighbor(addr, peerAS),
@@ -197,7 +201,7 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 		tx:             make(chan *Packet, 128),
 		rx:             make(chan *Packet, 128),
 		connCh:         make(chan *net.TCPConn, 1),
-		logger:         logger,
+		logger:         peerLogger,
 		connRetryTimer: newTimer(DEFAULT_CONNECT_RETRY_TIME_INTERVAL),
 		keepAliveTimer: newTimer(DEFAULT_KEEPALIVE_TIME_INTERVAL),
 		holdTimer:      newTimer(DEFAULT_HOLD_TIME_INTERVAL),
@@ -207,15 +211,15 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 }
 
 func (p *peer) logInfo(format string, v ...any) {
-	p.logger.Infof("[%s:%d(%d) %12s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
+	p.logger.GetLogger().Info().Str("status", p.fsm.GetState().String()).Msgf(format, v...)
 }
 
 func (p *peer) logWarn(format string, v ...any) {
-	p.logger.Warnf("[%s:%d(%d) %12s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
+	p.logger.GetLogger().Warn().Str("status", p.fsm.GetState().String()).Msgf(format, v...)
 }
 
 func (p *peer) logErr(format string, v ...any) {
-	p.logger.Errorf("[%s:%d(%d) %12s] %s", p.neighbor.addr, p.neighbor.port, p.neighbor.as, p.fsm.GetState(), fmt.Sprintf(format, v...))
+	p.logger.GetLogger().Error().Str("status", p.fsm.GetState().String()).Msgf(format, v...)
 }
 
 func (p *peer) poll(ctx context.Context) {
@@ -292,7 +296,7 @@ func (p *peer) enqueueEvent(evt event) error {
 		return ErrEventQueueNotExist
 	}
 	p.eventQueue <- evt
-	p.logInfo(" <- %s", evt.typ())
+	p.logInfo(evt.typ().String())
 	return nil
 }
 
@@ -496,7 +500,6 @@ func (p *peer) transOpenEvent(ctx context.Context) error {
 		if err := p.handleConn(ctx); err != nil {
 			return fmt.Errorf("tansOpenEvent: failed to handle conn: %w", err)
 		}
-		time.Sleep(time.Second * 1) // sleep for sync
 		opts := make([]*Option, 0)
 		// auth options
 		for _, cap := range p.capabilities {

@@ -8,6 +8,7 @@ import "google/protobuf/empty.proto";
 
 service BgpApi {
 	rpc Health(HealthRequest) returns (google.protobuf.Empty);
+	rpc GetLogPath(GetLogPathRequest) returns (GetLogPathResponse);
 
 	rpc Show(ShowRequest) returns (ShowResponse);
 	rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
@@ -31,6 +32,13 @@ message GrpResult {
 }
 
 message HealthRequest {}
+
+message GetLogPathRequest {}
+
+message GetLogPathResponse {
+	int32 level = 1;
+	string path = 2;
+}
 
 message ShowRequest {}
 

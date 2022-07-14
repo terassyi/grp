@@ -15,18 +15,23 @@ const (
 )
 
 type Logger interface {
-	Infof(string, ...any)
-	Infoln(...any)
-	Warnf(string, ...any)
-	Warnln(...any)
-	Errorf(string, ...any)
-	Errorln(...any)
+	Info(string, ...any)
+	Warn(string, ...any)
+	Err(string, ...any)
+	SetProtocol(protocol string)
+	Set(key, value string)
+	With() Logger
+	Level() Level
+	Path() string
+	GetLogger() *zerolog.Logger
 }
 
 type logger struct {
-	zerolog.Logger
-	level Level
-	out   io.Writer
+	lg       zerolog.Logger
+	level    Level
+	out      io.Writer
+	path     string
+	protocol string
 }
 
 type Level uint8
@@ -38,11 +43,29 @@ const (
 	Error Level = iota
 )
 
+func (l Level) String() string {
+	switch l {
+	case NoLog:
+		return "NoLog"
+	case Info:
+		return "Info"
+	case Warn:
+		return "Warn"
+	case Error:
+		return "Error"
+	default:
+		return "Unknown"
+	}
+}
+
 func New(level Level, out string) (Logger, error) {
 	if level > Error {
 		return nil, fmt.Errorf("New logger: Invalid log level.")
 	}
-	l := &logger{level: level}
+	l := &logger{
+		level: level,
+		path:  out,
+	}
 	switch out {
 	case "stdout":
 		l.out = os.Stdout
@@ -51,56 +74,74 @@ func New(level Level, out string) (Logger, error) {
 	case "":
 		l.out = ioutil.Discard
 	default:
-		ok, err := filepath.Match(BASE_PATH, out)
+		if err := prepareLogDir(); err != nil {
+			return nil, err
+		}
+		ok, err := filepath.Match(BASE_PATH+"/*", out)
 		if err != nil {
 			return nil, fmt.Errorf("New logger: %w", err)
 		}
 		if !ok {
 			return nil, fmt.Errorf("New logger: Invalid output path %s.\n  Output path must be under %s", out, BASE_PATH)
 		}
-		file, err := os.OpenFile(out, os.O_CREATE|os.O_RDWR, 0664)
+		file, err := os.OpenFile(out, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
 		if err != nil {
 			return nil, fmt.Errorf("New logger: %w", err)
 		}
 		l.out = file
 	}
-	output := zerolog.ConsoleWriter{Out: l.out, TimeFormat: "2006-01-02 15:04:050"}
-	l.Logger = zerolog.New(output).With().Timestamp().Logger()
+	l.lg = zerolog.New(l.out).With().Timestamp().Logger()
 	return l, nil
 }
 
-func (l *logger) Infof(format string, v ...any) {
+func (l *logger) Info(format string, v ...any) {
 	if l.level < Warn && l.level > NoLog {
-		l.Logger.Info().Msgf(format, v...)
+		l.lg.Info().Msgf(format, v...)
 	}
 }
 
-func (l *logger) Infoln(a ...any) {
-	if l.level < Warn && l.level > NoLog {
-		l.Logger.Info().Msg(fmt.Sprintln(a...))
-	}
-}
-
-func (l *logger) Warnf(format string, v ...any) {
+func (l *logger) Warn(format string, v ...any) {
 	if l.level < Error && l.level > NoLog {
-		l.Logger.Warn().Msgf(format, v...)
+		l.lg.Warn().Msgf(format, v...)
 	}
 }
 
-func (l *logger) Warnln(a ...any) {
-	if l.level < Error && l.level > NoLog {
-		l.Logger.Warn().Msg(fmt.Sprintln(a...))
-	}
-}
-
-func (l *logger) Errorf(format string, v ...any) {
+func (l *logger) Err(format string, v ...any) {
 	if l.level > NoLog {
-		l.Logger.Error().Msgf(format, v...)
+		l.lg.Error().Msgf(format, v...)
 	}
 }
 
-func (l *logger) Errorln(a ...any) {
-	if l.level > NoLog {
-		l.Logger.Error().Msg(fmt.Sprintln(a...))
+func (l *logger) SetProtocol(protocol string) {
+	l.protocol = protocol
+	l.lg = l.lg.With().Str("protocol", protocol).Logger()
+}
+
+func (l *logger) Set(key, value string) {
+	l.lg = l.lg.With().Str(key, value).Logger()
+}
+
+func (l *logger) With() Logger {
+	return &logger{
+		level:    l.level,
+		out:      l.out,
+		protocol: l.protocol,
+		lg:       zerolog.New(l.out).With().Timestamp().Logger().With().Str("protocol", l.protocol).Logger(),
 	}
+}
+
+func (l *logger) GetLogger() *zerolog.Logger {
+	return &l.lg
+}
+
+func (l *logger) Level() Level {
+	return l.level
+}
+
+func (l *logger) Path() string {
+	return l.path
+}
+
+func prepareLogDir() error {
+	return os.MkdirAll(BASE_PATH, 0644)
 }

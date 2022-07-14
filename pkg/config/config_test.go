@@ -14,8 +14,8 @@ func TestLoadConfig(t *testing.T) {
 		ext  string
 		conf *Config
 	}{
-		{data: []byte(`{"bgp": {"AS": 100, "router-id": "1.1.1.1"}}`), ext: "json", conf: &Config{Bgp: bgp.Config{AS: 100, RouterId: "1.1.1.1"}}},
-		{data: []byte("bgp:\n  AS: 100\n  router-id: \"1.1.1.1\"\n"), ext: "yml", conf: &Config{Bgp: bgp.Config{AS: 100, RouterId: "1.1.1.1"}}},
+		{data: []byte(`{"bgp": {"AS": 100, "router-id": "1.1.1.1"}}`), ext: "json", conf: &Config{Bgp: &bgp.Config{AS: 100, RouterId: "1.1.1.1"}}},
+		{data: []byte("bgp:\n  AS: 100\n  router-id: \"1.1.1.1\"\n"), ext: "yml", conf: &Config{Bgp: &bgp.Config{AS: 100, RouterId: "1.1.1.1"}}},
 		{data: []byte(
 			`log:
   level: 1
@@ -34,7 +34,7 @@ bgp:
 `),
 			ext: "yml",
 			conf: &Config{
-				Bgp: bgp.Config{
+				Bgp: &bgp.Config{
 					AS:        100,
 					RouterId:  "1.1.1.1",
 					Networks:  []string{"10.0.0.0/24", "10.0.1.0/24"},

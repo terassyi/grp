@@ -36,9 +36,9 @@ func NewServerWithConfig(config *Config, logLevel int, logOut string) (*server, 
 	if err != nil {
 		return nil, err
 	}
-	b.logger.Infoln("gRPC server is not created")
+	b.logger.Info("gRPC server is not created")
 	grpcServer := grpc.NewServer([]grpc.ServerOption{}...)
-	b.logger.Infoln("gRPC server created")
+	b.logger.Info("gRPC server created")
 	return &server{
 		bgp:       b,
 		apiServer: grpcServer,
@@ -46,12 +46,12 @@ func NewServerWithConfig(config *Config, logLevel int, logOut string) (*server, 
 }
 
 func (s *server) Run(ctx context.Context) error {
-	s.bgp.logger.Infoln("GRP BGP Server Start")
+	s.bgp.logger.Info("GRP BGP Server Start")
 	cctx, cancel := context.WithCancel(ctx)
 	sigCh := make(chan os.Signal, 1)
 	defer func() {
 		cancel()
-		s.bgp.logger.Infoln("BGP server stopped.")
+		s.bgp.logger.Info("BGP server stopped.")
 	}()
 	signal.Notify(sigCh,
 		syscall.SIGINT,
@@ -63,12 +63,12 @@ func (s *server) Run(ctx context.Context) error {
 	pb.RegisterBgpApiServer(s.apiServer, s)
 	go func() {
 		if err := s.bgp.PollWithContext(cctx); err != nil {
-			s.bgp.logger.Errorln(err)
+			s.bgp.logger.Err("%v", err)
 		}
 	}()
 	go func() {
 		if err := s.apiServer.Serve(listener); err != nil {
-			s.bgp.logger.Errorln(err)
+			s.bgp.logger.Err("%v", err)
 		}
 	}()
 

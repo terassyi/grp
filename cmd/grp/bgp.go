@@ -2,16 +2,21 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 
+	"github.com/hpcloud/tail"
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/pb"
 	"github.com/terassyi/grp/pkg/constants"
+	grpLog "github.com/terassyi/grp/pkg/log"
 	"google.golang.org/grpc"
 )
 
@@ -216,5 +221,119 @@ var networkSubCmd = &cobra.Command{
 			fmt.Println(err)
 			os.Exit(1)
 		}
+	},
+}
+
+var logSubCmd = &cobra.Command{
+	Use:   "logs",
+	Short: "show bgp logs",
+	Run: func(cmd *cobra.Command, args []string) {
+		type LogJson struct {
+			Time     string  `json:"time"`
+			Level    string  `json:"level"`
+			Protocol string  `json:"protocol"`
+			AS       *string `json:"remote-as,omitempty"`
+			Address  *string `json:"address,omitempty"`
+			Status   *string `json:"status,omitempty"`
+			Message  string  `json:"message"`
+		}
+		bc := newBgpClient()
+		defer bc.conn.Close()
+		res, err := bc.GetLogPath(context.Background(), &pb.GetLogPathRequest{})
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		if res.Path == "stdout" {
+			fmt.Printf("Logs are output to standard output with level %s.\n", grpLog.Level(res.Level))
+			os.Exit(0)
+		}
+		if res.Path == "stderr" {
+			fmt.Printf("Logs are output to standard error(stderr) with level %s\n.", grpLog.Level(res.Level))
+			os.Exit(0)
+		}
+		if res.Path == "" {
+			fmt.Println("Logs are not outpute")
+			os.Exit(0)
+		}
+		follow, err := cmd.Flags().GetBool("follow")
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		plain, err := cmd.Flags().GetBool("plain-text")
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		fmt.Printf("BGP Logs Output %s with level %s\n\n", res.Path, grpLog.Level(res.Level))
+		t, err := tail.TailFile(res.Path, tail.Config{
+			ReOpen: true,
+			Poll:   true,
+			Follow: follow,
+		})
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		ctrlC := make(chan os.Signal, 1)
+		signal.Notify(ctrlC,
+			syscall.SIGINT,
+			syscall.SIGTERM)
+		formatPlainText := func(lj *LogJson) (string, error) {
+			base := fmt.Sprintf("%s|%s|%s|", lj.Time, lj.Level, lj.Protocol)
+			if lj.AS != nil {
+				base += fmt.Sprintf("%s|%s|%v|", *lj.AS, *lj.Address, *lj.Status)
+			}
+			return fmt.Sprintf("%s%s", base, lj.Message), nil
+		}
+		filterASs := make([]int, 0)
+		for _, a := range args {
+			i, err := strconv.Atoi(a)
+			if err != nil {
+				fmt.Println(err)
+				fmt.Println("Please specify AS number you want to watch.")
+				os.Exit(1)
+			}
+			filterASs = append(filterASs, i)
+		}
+		go func() {
+			for line := range t.Lines {
+				lj := &LogJson{}
+				if err := json.Unmarshal([]byte(line.Text), lj); err != nil {
+					fmt.Printf("parse json formated log:%v\n", err)
+					continue
+				}
+				flag := true
+				if lj.AS != nil {
+					flag = func() bool {
+						for _, as := range filterASs {
+							a, err := strconv.Atoi(*lj.AS)
+							if err != nil {
+								fmt.Printf("parse remote-as:%v\n", err)
+								continue
+							}
+							if as != a {
+								return false
+							}
+						}
+						return true
+					}()
+				}
+				if flag {
+					if plain {
+						l, err := formatPlainText(lj)
+						if err != nil {
+							fmt.Println(err)
+							continue
+						}
+						fmt.Println(l)
+					} else {
+						fmt.Println(line.Text)
+					}
+				}
+			}
+		}()
+		<-ctrlC
 	},
 }

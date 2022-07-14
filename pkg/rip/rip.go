@@ -297,24 +297,24 @@ func (r *Rip) Poll() error {
 }
 
 func (r *Rip) poll() {
-	r.logger.Infoln("GRP RIP polling start...")
+	r.logger.Info("GRP RIP polling start...")
 	for {
 		select {
 		case <-r.timer.C:
 			if err := r.regularUpdate(); err != nil {
-				r.logger.Errorf("RIP ERROR: %v\n", err)
+				r.logger.Err("RIP ERROR: %v\n", err)
 			}
 		case <-r.gcTimer.C:
 			if err := r.gc(); err != nil {
-				r.logger.Errorf("RIP ERROR: %v\n", err)
+				r.logger.Err("RIP ERROR: %v\n", err)
 			}
 		case <-r.trigger:
 			if err := r.triggerUpdate(); err != nil {
-				r.logger.Errorf("RIP ERROR: %v\n", err)
+				r.logger.Err("RIP ERROR: %v\n", err)
 			}
 		case msg := <-r.rx:
 			if err := r.rxHandle(&msg); err != nil {
-				r.logger.Errorf("RIP ERROR: %v\n", err)
+				r.logger.Err("RIP ERROR: %v\n", err)
 			}
 		}
 	}
@@ -333,7 +333,7 @@ func (r *Rip) rxHandle(msg *message) error {
 			return nil
 		}
 	}
-	r.logger.Infof("%s:%d\n", msg.addr, msg.port)
+	r.logger.Info("%s:%d\n", msg.addr, msg.port)
 	switch packet.Command {
 	case REQUEST:
 		res, err := r.request(packet)
@@ -383,7 +383,7 @@ func (r *Rip) buildResponse(req *Packet) (*Packet, error) {
 }
 
 func (r *Rip) response(link netlink.Link, addr net.IP, packet *Packet) error {
-	r.logger.Infoln(r.dumpTable())
+	r.logger.Info(r.dumpTable())
 	// if src port is not 520, ignore
 	// update neighbor information
 	a := &net.IPNet{IP: addr, Mask: addr.To4().DefaultMask()}
@@ -466,7 +466,7 @@ func (r *Rip) rxtxLoopLink(ctx context.Context, index int) error {
 		IP:   r.addrs[index].Broadcast,
 		Port: r.port,
 	}
-	r.logger.Infof("RIP Rx routine start... %s:%d\n", r.addrs[index].Broadcast, r.port)
+	r.logger.Info("RIP Rx routine start... %s:%d\n", r.addrs[index].Broadcast, r.port)
 	listener, err := net.ListenUDP("udp", host)
 	if err != nil {
 		return err
@@ -541,7 +541,7 @@ func (r *Rip) regularUpdate() error {
 }
 
 func (r *Rip) triggerUpdate() error {
-	r.logger.Infoln("Trigger update.")
+	r.logger.Info("Trigger update.")
 	rt := make([]*route, 0)
 	for _, rr := range r.table.routes {
 		if rr.state == ROUTE_STATE_TIMEOUT || rr.state == ROUTE_STATE_UPDATED {

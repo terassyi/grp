@@ -39,6 +39,13 @@ func (s *server) Health(ctx context.Context, in *pb.HealthRequest) (*emptypb.Emp
 	return &emptypb.Empty{}, nil
 }
 
+func (s *server) GetLogPath(ctx context.Context, in *pb.GetLogPathRequest) (*pb.GetLogPathResponse, error) {
+	return &pb.GetLogPathResponse{
+		Level: int32(s.bgp.logger.Level()),
+		Path: s.bgp.logger.Path(),
+	}, nil
+}
+
 func (s *server) Show(ctx context.Context, in *pb.ShowRequest) (*pb.ShowResponse, error) {
 	return &pb.ShowResponse{
 		As:       int32(s.bgp.as),
