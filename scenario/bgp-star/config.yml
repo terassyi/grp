@@ -1,0 +1,21 @@
+# grpd bgp
+
+bgp:
+  AS: 100
+  router-id: 1.1.1.1
+  neighbors:
+    - address: 10.0.0.2
+      router-id: 2.2.2.2
+      AS: 200
+    - address: 10.1.0.2
+      router-id: 3.3.3.3
+      AS: 300
+    - address: 10.2.0.2
+      router-id: 4.4.4.4
+      AS: 400
+    - address: 10.3.0.2
+      router-id: 5.5.5.5
+      AS: 500
+    - address: 10.4.0.2
+      router-id: 6.6.6.6
+      AS: 600
