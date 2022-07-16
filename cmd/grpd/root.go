@@ -21,13 +21,17 @@ func init() {
 	ripCmd.Flags().Uint64P("gc", "g", rip.DEFALUT_GC_TIME, "RIP gc time.")
 	ripCmd.Flags().IntP("log", "l", 0, "log level")
 	ripCmd.Flags().StringP("log-path", "o", "", "log output path")
-	rootCmd.AddCommand(ripCmd)
 
 	// bgp
 	bgpCmd.Flags().IntP("log", "l", 0, "log level")
 	bgpCmd.Flags().StringP("log-path", "o", "", "log output path")
 	bgpCmd.Flags().StringP("config", "c", "", "configuration file path")
-	rootCmd.AddCommand(bgpCmd)
+
+	rootCmd.AddCommand(
+		routeCmd,
+		ripCmd,
+		bgpCmd,
+	)
 }
 
 func Execute() {

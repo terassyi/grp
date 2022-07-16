@@ -4,5 +4,4 @@ package grp;
 
 option go_package = "github.com/terassyi/grp/pb";
 
-service GrpApi {
-}
+message HealthRequest {}
