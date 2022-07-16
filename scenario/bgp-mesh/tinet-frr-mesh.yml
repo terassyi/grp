@@ -1,0 +1,147 @@
+# tinet up -c tinet-mesh.yml | sudo sh -x
+# tinet -c conf tinet-mesh.yml | sudo sh -x
+
+# docker exec -it R0 bash
+# ./grpd bgp -c ./scenario/bgp-mesh/config.yml
+# exit
+
+# tinet test -c tinet-mesh.yml | sudo sh -x
+
+nodes:
+  - name: R0
+    image: slankdev/frr
+    # image: terassyi/grp
+    # buildfile: ./scenario/docker/grp/Dockerfile
+    # buildcontext: ./scenario/docker/grp/
+    mounts:
+      - $(pwd):/go/grp
+    interfaces:
+      - { name: net0, type: direct, args: R1#net0 }
+      - { name: net1, type: direct, args: R3#net0 }
+      - { name: net2, type: direct, args: R5#net0 }
+      - { name: net3, type: direct, args: R6#net0 }
+  - name: R1
+    image: slankdev/frr
+    interfaces:
+      - { name: net0, type: direct, args: R0#net0 }
+      - { name: net1, type: direct, args: R2#net0 }
+  - name: R2
+    image: slankdev/frr
+    interfaces:
+      - { name: net0, type: direct, args: R1#net1 }
+  - name: R3
+    image: slankdev/frr
+    interfaces:
+      - { name: net0, type: direct, args: R0#net1 }
+      - { name: net1, type: direct, args: R4#net0 }
+  - name: R4
+    image: slankdev/frr
+    interfaces:
+      - { name: net0, type: direct, args: R3#net1 }
+      - { name: net1, type: direct, args: R5#net1 }
+  - name: R5
+    image: slankdev/frr
+    interfaces:
+      - { name: net0, type: direct, args: R0#net2 }
+      - { name: net1, type: direct, args: R4#net1 }
+  - name: R6
+    image: slankdev/frr
+    interfaces:
+      - { name: net0, type: direct, args: R0#net3 }
+
+node_configs:
+  - name: R0
+    cmds:
+      - cmd: /usr/lib/frr/frr start
+      - cmd: ip addr add 10.0.0.1/24 dev net0
+      - cmd: ip addr add 10.2.0.1/24 dev net1
+      - cmd: ip addr add 10.5.0.1/24 dev net2
+      - cmd: ip addr add 10.6.0.1/24 dev net3
+      - cmd: >-
+          vtysh -c "conf t"
+          -c "router bgp 100"
+          -c "bgp router-id 1.1.1.1"
+          -c "neighbor 10.0.0.2 remote-as 200"
+          -c "neighbor 10.2.0.2 remote-as 400"
+          -c "neighbor 10.5.0.2 remote-as 600"
+          -c "neighbor 10.6.0.2 remote-as 700"
+          -c "network 10.5.0.0/24"
+  - name: R1
+    cmds:
+      - cmd: /usr/lib/frr/frr start
+      - cmd: ip addr add 10.0.0.2/24 dev net0
+      - cmd: ip addr add 10.1.0.1/24 dev net1
+      - cmd: >-
+          vtysh -c "conf t"
+          -c "router bgp 200"
+          -c "bgp router-id 2.2.2.2"
+          -c "neighbor 10.0.0.1 remote-as 100"
+          -c "neighbor 10.1.0.2 remote-as 300"
+          -c "network 10.0.0.0/24"
+  - name: R2
+    cmds:
+      - cmd: /usr/lib/frr/frr start
+      - cmd: ip addr add 10.1.0.2/24 dev net0
+      - cmd: >-
+          vtysh -c "conf t"
+          -c "router bgp 300"
+          -c "bgp router-id 3.3.3.3"
+          -c "neighbor 10.1.0.1 remote-as 200"
+          -c "network 10.1.0.0/24"
+  - name: R3
+    cmds:
+      - cmd: /usr/lib/frr/frr start
+      - cmd: ip addr add 10.2.0.2/24 dev net0
+      - cmd: ip addr add 10.3.0.1/24 dev net1
+      - cmd: >-
+          vtysh -c "conf t"
+          -c "router bgp 400"
+          -c "bgp router-id 4.4.4.4"
+          -c "neighbor 10.2.0.1 remote-as 100"
+          -c "neighbor 10.3.0.2 remote-as 500"
+          -c "network 10.2.0.0/24"
+  - name: R4
+    cmds:
+      - cmd: /usr/lib/frr/frr start
+      - cmd: ip addr add 10.3.0.2/24 dev net0
+      - cmd: ip addr add 10.4.0.1/24 dev net1
+      - cmd: >-
+          vtysh -c "conf t"
+          -c "router bgp 500"
+          -c "bgp router-id 5.5.5.5"
+          -c "neighbor 10.3.0.1 remote-as 400"
+          -c "neighbor 10.4.0.2 remote-as 600"
+          -c "network 10.3.0.0/24"
+  - name: R5
+    cmds:
+      - cmd: /usr/lib/frr/frr start
+      - cmd: ip addr add 10.5.0.2/24 dev net0
+      - cmd: ip addr add 10.4.0.2/24 dev net1
+      - cmd: >-
+          vtysh -c "conf t"
+          -c "router bgp 600"
+          -c "bgp router-id 6.6.6.6"
+          -c "neighbor 10.4.0.1 remote-as 500"
+          -c "neighbor 10.5.0.1 remote-as 100"
+          -c "network 10.4.0.0/24"
+  - name: R6
+    cmds:
+      - cmd: /usr/lib/frr/frr start
+      - cmd: ip addr add 10.6.0.2/24 dev net0
+      - cmd: >-
+          vtysh -c "conf t"
+          -c "router bgp 700"
+          -c "bgp router-id 7.7.7.7"
+          -c "neighbor 10.6.0.1 remote-as 100"
+          -c "network 10.6.0.0/24"
+
+test:
+  - cmds:
+      - cmd: docker exec R2 ping -c2 10.5.0.2
+      - cmd: docker exec R2 ping -c2 10.4.0.1
+      - cmd: docker exec R5 ping -c2 10.6.0.2
+      - cmd: docker exec R3 ping -c2 10.5.0.2
+      - cmd: docker exec R2 traceroute 10.4.0.1
+      - cmd: docker exec R4 traceroute 10.0.0.2
+      - cmd: docker exec R3 traceroute 10.4.0.2
+      - cmd: docker exec R4 traceroute 10.6.0.2
