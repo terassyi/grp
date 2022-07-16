@@ -6,7 +6,9 @@ import (
 	"net"
 
 	"github.com/terassyi/grp/pb"
+	"github.com/terassyi/grp/pkg/log"
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink/nl"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -16,12 +18,25 @@ const RouteServerPort = 6789
 
 type RouteServer struct {
 	pb.UnimplementedRouteApiServer
-	routes map[string]netlink.Route
+	routes map[string]*Route
+	logger log.Logger
 }
 
 func New() (*RouteServer, error) {
+	logger, err := log.New(log.Info, "stdout") // for dev
+	if err != nil {
+		return nil, err
+	}
+	all, err := getAllRoutes()
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range all {
+		logger.Info("%s", r.String())
+	}
 	r := &RouteServer{
-		routes: map[string]netlink.Route{},
+		routes: all,
+		logger: logger,
 	}
 	return r, nil
 }
@@ -36,16 +51,30 @@ func (r *RouteServer) Serve() error {
 	return server.Serve(listener)
 }
 
-func prepare() (map[string]netlink.Route, error) {
+func getAllRoutes() (map[string]*Route, error) {
 	links, err := netlink.LinkList()
 	if err != nil {
 		return nil, err
 	}
-	routes := make(map[string]netlink.Route)
-	netlink.RouteList()
-	return routes, nil
+	routeMap := make(map[string]*Route)
+	for _, link := range links {
+		routes, err := netlink.RouteList(link, nl.FAMILY_V4)
+		if err != nil {
+			return nil, err
+		}
+		for _, route := range routes {
+			// default, if bgp route is found, external set true.
+			routeMap[route.Dst.String()] = RouteFromNetLink(route, true)
+		}
+	}
+	return routeMap, nil
 }
 
 func (r *RouteServer) Health(ctx context.Context, in *pb.HealthRequest) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
+}
+
+func (r *RouteServer) SetRoute(ctx context.Context, in *pb.SetRouteRequest) (*emptypb.Empty, error) {
+
 	return &emptypb.Empty{}, nil
 }

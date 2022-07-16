@@ -8,10 +8,10 @@ package pb
 
 import (
 	context "context"
-	empty "github.com/golang/protobuf/ptypes/empty"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -23,15 +23,15 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type BgpApiClient interface {
-	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetLogPath(ctx context.Context, in *GetLogPathRequest, opts ...grpc.CallOption) (*GetLogPathResponse, error)
 	Show(ctx context.Context, in *ShowRequest, opts ...grpc.CallOption) (*ShowResponse, error)
 	GetNeighbor(ctx context.Context, in *GetNeighborRequest, opts ...grpc.CallOption) (*GetNeighborResponse, error)
 	ListNeighbor(ctx context.Context, in *ListNeighborRequest, opts ...grpc.CallOption) (*ListNeighborResponse, error)
-	SetAS(ctx context.Context, in *SetASRequest, opts ...grpc.CallOption) (*empty.Empty, error)
-	RouterId(ctx context.Context, in *RouterIdRequest, opts ...grpc.CallOption) (*empty.Empty, error)
-	RemoteAS(ctx context.Context, in *RemoteASRequest, opts ...grpc.CallOption) (*empty.Empty, error)
-	Network(ctx context.Context, in *NetworkRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	SetAS(ctx context.Context, in *SetASRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	RouterId(ctx context.Context, in *RouterIdRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	RemoteAS(ctx context.Context, in *RemoteASRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	Network(ctx context.Context, in *NetworkRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type bgpApiClient struct {
@@ -42,8 +42,8 @@ func NewBgpApiClient(cc grpc.ClientConnInterface) BgpApiClient {
 	return &bgpApiClient{cc}
 }
 
-func (c *bgpApiClient) Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *bgpApiClient) Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/grp.BgpApi/Health", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -87,8 +87,8 @@ func (c *bgpApiClient) ListNeighbor(ctx context.Context, in *ListNeighborRequest
 	return out, nil
 }
 
-func (c *bgpApiClient) SetAS(ctx context.Context, in *SetASRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *bgpApiClient) SetAS(ctx context.Context, in *SetASRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/grp.BgpApi/SetAS", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -96,8 +96,8 @@ func (c *bgpApiClient) SetAS(ctx context.Context, in *SetASRequest, opts ...grpc
 	return out, nil
 }
 
-func (c *bgpApiClient) RouterId(ctx context.Context, in *RouterIdRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *bgpApiClient) RouterId(ctx context.Context, in *RouterIdRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/grp.BgpApi/RouterId", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -105,8 +105,8 @@ func (c *bgpApiClient) RouterId(ctx context.Context, in *RouterIdRequest, opts .
 	return out, nil
 }
 
-func (c *bgpApiClient) RemoteAS(ctx context.Context, in *RemoteASRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *bgpApiClient) RemoteAS(ctx context.Context, in *RemoteASRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/grp.BgpApi/RemoteAS", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -114,8 +114,8 @@ func (c *bgpApiClient) RemoteAS(ctx context.Context, in *RemoteASRequest, opts .
 	return out, nil
 }
 
-func (c *bgpApiClient) Network(ctx context.Context, in *NetworkRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *bgpApiClient) Network(ctx context.Context, in *NetworkRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/grp.BgpApi/Network", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -127,15 +127,15 @@ func (c *bgpApiClient) Network(ctx context.Context, in *NetworkRequest, opts ...
 // All implementations must embed UnimplementedBgpApiServer
 // for forward compatibility
 type BgpApiServer interface {
-	Health(context.Context, *HealthRequest) (*empty.Empty, error)
+	Health(context.Context, *HealthRequest) (*emptypb.Empty, error)
 	GetLogPath(context.Context, *GetLogPathRequest) (*GetLogPathResponse, error)
 	Show(context.Context, *ShowRequest) (*ShowResponse, error)
 	GetNeighbor(context.Context, *GetNeighborRequest) (*GetNeighborResponse, error)
 	ListNeighbor(context.Context, *ListNeighborRequest) (*ListNeighborResponse, error)
-	SetAS(context.Context, *SetASRequest) (*empty.Empty, error)
-	RouterId(context.Context, *RouterIdRequest) (*empty.Empty, error)
-	RemoteAS(context.Context, *RemoteASRequest) (*empty.Empty, error)
-	Network(context.Context, *NetworkRequest) (*empty.Empty, error)
+	SetAS(context.Context, *SetASRequest) (*emptypb.Empty, error)
+	RouterId(context.Context, *RouterIdRequest) (*emptypb.Empty, error)
+	RemoteAS(context.Context, *RemoteASRequest) (*emptypb.Empty, error)
+	Network(context.Context, *NetworkRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedBgpApiServer()
 }
 
@@ -143,7 +143,7 @@ type BgpApiServer interface {
 type UnimplementedBgpApiServer struct {
 }
 
-func (UnimplementedBgpApiServer) Health(context.Context, *HealthRequest) (*empty.Empty, error) {
+func (UnimplementedBgpApiServer) Health(context.Context, *HealthRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Health not implemented")
 }
 func (UnimplementedBgpApiServer) GetLogPath(context.Context, *GetLogPathRequest) (*GetLogPathResponse, error) {
@@ -158,16 +158,16 @@ func (UnimplementedBgpApiServer) GetNeighbor(context.Context, *GetNeighborReques
 func (UnimplementedBgpApiServer) ListNeighbor(context.Context, *ListNeighborRequest) (*ListNeighborResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListNeighbor not implemented")
 }
-func (UnimplementedBgpApiServer) SetAS(context.Context, *SetASRequest) (*empty.Empty, error) {
+func (UnimplementedBgpApiServer) SetAS(context.Context, *SetASRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetAS not implemented")
 }
-func (UnimplementedBgpApiServer) RouterId(context.Context, *RouterIdRequest) (*empty.Empty, error) {
+func (UnimplementedBgpApiServer) RouterId(context.Context, *RouterIdRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RouterId not implemented")
 }
-func (UnimplementedBgpApiServer) RemoteAS(context.Context, *RemoteASRequest) (*empty.Empty, error) {
+func (UnimplementedBgpApiServer) RemoteAS(context.Context, *RemoteASRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoteAS not implemented")
 }
-func (UnimplementedBgpApiServer) Network(context.Context, *NetworkRequest) (*empty.Empty, error) {
+func (UnimplementedBgpApiServer) Network(context.Context, *NetworkRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Network not implemented")
 }
 func (UnimplementedBgpApiServer) mustEmbedUnimplementedBgpApiServer() {}

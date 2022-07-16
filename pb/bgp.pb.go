@@ -7,9 +7,9 @@
 package pb
 
 import (
-	empty "github.com/golang/protobuf/ptypes/empty"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	reflect "reflect"
 	sync "sync"
 )
@@ -909,7 +909,7 @@ var file_bgp_proto_goTypes = []interface{}{
 	(*RouterIdRequest)(nil),      // 13: grp.RouterIdRequest
 	(*NetworkRequest)(nil),       // 14: grp.NetworkRequest
 	(*HealthRequest)(nil),        // 15: grp.HealthRequest
-	(*empty.Empty)(nil),          // 16: google.protobuf.Empty
+	(*emptypb.Empty)(nil),        // 16: google.protobuf.Empty
 }
 var file_bgp_proto_depIdxs = []int32{
 	0,  // 0: grp.GrpResult.result:type_name -> grp.ResultCode
