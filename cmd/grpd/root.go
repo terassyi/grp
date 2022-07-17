@@ -27,6 +27,8 @@ func init() {
 	bgpCmd.Flags().StringP("log-path", "o", "", "log output path")
 	bgpCmd.Flags().StringP("config", "c", "", "configuration file path")
 
+	// route manager
+
 	rootCmd.AddCommand(
 		routeCmd,
 		ripCmd,
