@@ -124,3 +124,11 @@ func RouteManagerHealthCheck() bool {
 	}
 	return true
 }
+
+func NewRouteManagerClient(endpoint string) (pb.RouteApiClient, error) {
+	client, err := grpc.Dial(endpoint, grpc.WithInsecure())
+	if err != nil {
+		return nil, err
+	}
+	return pb.NewRouteApiClient(client), nil
+}

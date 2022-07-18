@@ -13,6 +13,7 @@ import (
 
 	"github.com/terassyi/grp/pb"
 	"github.com/terassyi/grp/pkg/log"
+	"github.com/terassyi/grp/pkg/route"
 	"github.com/vishvananda/netlink"
 )
 
@@ -25,18 +26,19 @@ const (
 )
 
 type Bgp struct {
-	as           int
-	port         int
-	routerId     net.IP
-	peers        map[string]*peer // key: ipaddr string, value: peer struct pointer
-	locRib       *LocRib
-	adjRibIn     *AdjRibIn
-	networks     []*net.IPNet
-	requestQueue chan *Request
-	config       *BgpConfig
-	logger       log.Logger
-	signalCh     chan os.Signal
-	id           int
+	as                   int
+	port                 int
+	routerId             net.IP
+	peers                map[string]*peer // key: ipaddr string, value: peer struct pointer
+	locRib               *LocRib
+	adjRibIn             *AdjRibIn
+	routeManager         pb.RouteApiClient
+	routeManagerEndpoint string
+	requestQueue         chan *Request
+	config               *BgpConfig
+	logger               log.Logger
+	signalCh             chan os.Signal
+	id                   int
 }
 
 type BgpConfig struct {
@@ -72,16 +74,16 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 		syscall.SIGINT,
 		syscall.SIGTERM)
 	return &Bgp{
-		port:         port,
-		peers:        make(map[string]*peer),
-		locRib:       NewLocRib(),
-		adjRibIn:     newAdjRibIn(),
-		logger:       logger,
-		requestQueue: make(chan *Request, 16),
-		networks:     make([]*net.IPNet, 0),
-		signalCh:     sigCh,
-		id:           rand.Int(),
-		config:       &BgpConfig{bestPathConfig: &BestPathConfig{}},
+		port:                 port,
+		peers:                make(map[string]*peer),
+		locRib:               NewLocRib(),
+		adjRibIn:             newAdjRibIn(),
+		routeManagerEndpoint: fmt.Sprintf("%s:%d", route.DefaultRouteManagerHost, route.DefaultRouteMangerPort),
+		logger:               logger,
+		requestQueue:         make(chan *Request, 16),
+		signalCh:             sigCh,
+		id:                   rand.Int(),
+		config:               &BgpConfig{bestPathConfig: &BestPathConfig{}},
 	}, nil
 }
 
@@ -100,6 +102,9 @@ func FromConfig(conf *Config, logLevel int, logOut string) (*Bgp, error) {
 	b.setAS(conf.AS)
 	if conf.RouterId != "" {
 		b.setRouterId(conf.RouterId)
+	}
+	if conf.RouteManagerEndpoint != nil {
+		b.routeManagerEndpoint = *conf.RouteManagerEndpoint
 	}
 	for _, neighbor := range conf.Neighbors {
 		peerAddr := net.ParseIP(neighbor.Address)
@@ -149,6 +154,11 @@ func (b *Bgp) Poll() error {
 
 func (b *Bgp) PollWithContext(ctx context.Context) error {
 	b.logger.Info("BGP daemon start.")
+	client, err := route.NewRouteManagerClient(b.routeManagerEndpoint)
+	if err != nil {
+		b.logger.Warn("Route manager is not running")
+	}
+	b.routeManager = client
 	if err := b.poll(ctx); err != nil { // BGP daemon main routine
 		return err
 	}
@@ -251,7 +261,24 @@ func (b *Bgp) pollRib(ctx context.Context) {
 		case pathes := <-b.locRib.queue:
 			for _, path := range pathes {
 				if err := b.locRib.Insert(path); err != nil {
-					b.logger.Err("pollRib: ", err)
+					b.logger.Err("pollRib: %s", err)
+				}
+				if b.routeManager != nil {
+					src := path.nextHop.String()
+					if _, err := b.routeManager.SetRoute(ctx, &pb.SetRouteRequest{
+						Route: &pb.Route{
+							Destination:       path.nlri.String(),
+							Src:               nil,
+							Gw:                &src,
+							Link:              path.link.Attrs().Name,
+							Protocol:          pb.Protocol(route.RT_PROTO_BGP),
+							BgpOriginExternal: true,
+						},
+					}); err != nil {
+						b.logger.Err("pollRib: %s", err)
+					}
+				} else {
+					b.logger.Warn("Cannot insert to fib bacause of route manager not running")
 				}
 			}
 			for _, peer := range b.peers {

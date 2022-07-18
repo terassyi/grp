@@ -306,12 +306,12 @@ func (l *LocRib) Insert(path *Path) error {
 		// if the given path is originated by local, don't insert into route table
 		return nil
 	}
-	routes, err := l.isntallToRib(path.link, path.nlri.Network(), path.nextHop)
-	if err != nil {
-		return fmt.Errorf("LocRib_InsertPath: %w", err)
-	}
-	path.routes = routes
-	path.status = PathStatusInstalledIntoLocRib
+	// routes, err := l.isntallToRib(path.link, path.nlri.Network(), path.nextHop)
+	// if err != nil {
+	// 	return fmt.Errorf("LocRib_InsertPath: %w", err)
+	// }
+	// path.routes = routes
+	// path.status = PathStatusInstalledIntoLocRib
 	return nil
 }
 
