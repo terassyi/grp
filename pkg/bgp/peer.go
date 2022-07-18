@@ -665,7 +665,7 @@ func (p *peer) triggerDecisionProcessEvent(evt event) error {
 	errs := []error{}
 	updatedPathes := make([]*Path, 0, len(de.pathes))
 	for _, path := range de.pathes {
-		selected, err := p.rib.In.Select(p.as, path, de.withdrawn, p.bestPathConfig)
+		reason, selected, err := p.rib.In.Select(p.as, path, de.withdrawn, p.bestPathConfig)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -673,6 +673,8 @@ func (p *peer) triggerDecisionProcessEvent(evt event) error {
 		if selected == nil {
 			continue
 		}
+		p.logInfo("selected path with %s %s", reason, selected)
+		p.logInfo("AS sequence %v", selected.asPath.GetSequence())
 		updatedPathes = append(updatedPathes, selected)
 	}
 	if len(errs) != 0 {

@@ -3,3 +3,4 @@
 .devcontainer
 /grp
 /grpd
+*.pcap

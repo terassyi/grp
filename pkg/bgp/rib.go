@@ -184,29 +184,29 @@ func (r *AdjRibIn) Calculate(nlri *Prefix, bestPathConfig *BestPathConfig) (Best
 // Notice that even though BGP routes do not have to be installed in the Routing Table with the immediate next-hos(s),
 // implementations MUST take care that, before any packets are forwarded along a BGP route,
 // its associated NEXT_HOP address is resolved to the immediate (directly connected) next-hop address, and that this address (or multiple addresses) is finally used for actual packet forwarding.
-func (r *AdjRibIn) Select(as int, path *Path, withdrawn bool, bestPathConfig *BestPathConfig) (*Path, error) {
+func (r *AdjRibIn) Select(as int, path *Path, withdrawn bool, bestPathConfig *BestPathConfig) (BestPathSelectionReason, *Path, error) {
 	if !path.local && path.asPath.Contains(as) {
-		return nil, nil
+		return 0, nil, nil
 	}
 	if path.asPath.CheckLoop() {
-		return nil, fmt.Errorf("AdjRibIn_Select: detect AS loop")
+		return 0, nil, fmt.Errorf("AdjRibIn_Select: detect AS loop")
 	}
 	// Insert into Adj-Rib-In
 	if err := r.Insert(path); err != nil {
-		return nil, fmt.Errorf("AdjRibIn_Select: %w", err)
+		return 0, nil, fmt.Errorf("AdjRibIn_Select: %w", err)
 	}
 
-	_, bestPath, err := r.Calculate(path.nlri, bestPathConfig)
+	reason, bestPath, err := r.Calculate(path.nlri, bestPathConfig)
 	if err != nil {
-		return nil, fmt.Errorf("AdjRibIn_Select: %w", err)
+		return 0, nil, fmt.Errorf("AdjRibIn_Select: %w", err)
 	}
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
 	if bestPath.id != path.id {
-		return nil, nil
+		return 0, nil, nil
 	}
 	bp := bestPath.DeepCopy()
-	return &bp, nil
+	return reason, &bp, nil
 }
 
 type AdjRibOut struct {

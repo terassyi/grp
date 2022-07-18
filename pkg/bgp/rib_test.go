@@ -432,7 +432,7 @@ func TestPeer_Select(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt := tt
 			t.Log(tt.path.nlri.Network())
-			_, err := p.rib.In.Select(p.as, tt.path, tt.withdraw, p.bestPathConfig)
+			_, _, err := p.rib.In.Select(p.as, tt.path, tt.withdraw, p.bestPathConfig)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {

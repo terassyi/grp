@@ -270,7 +270,7 @@ func (b *Bgp) originateRoutes(networks []string) error {
 		if err != nil {
 			return fmt.Errorf("Bgp_originateRoutes: %w", err)
 		}
-		selected, err := b.adjRibIn.Select(b.as, path, false, b.config.bestPathConfig)
+		_, selected, err := b.adjRibIn.Select(b.as, path, false, b.config.bestPathConfig)
 		if err != nil {
 			return fmt.Errorf("Bgp_originateRoutes: %w", err)
 		}
