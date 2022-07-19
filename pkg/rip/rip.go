@@ -130,8 +130,6 @@ func New(names []string, port int, timeout, gcTime uint64, logLevel int, logOutp
 		return nil, err
 	}
 	return &Rip{
-		// rx:      make(chan []byte, 16),
-		// tx:      make(chan *Packet, 16),
 		rx:      make(chan message, 128),
 		tx:      make(chan message, 128),
 		links:   links,
@@ -145,6 +143,36 @@ func New(names []string, port int, timeout, gcTime uint64, logLevel int, logOutp
 		table:   table,
 		logger:  logger,
 	}, nil
+}
+
+func FromConfig(config *Config, logLevel int, logOut string) (*Rip, error) {
+	port := PORT
+	timeout := DEFALUT_TIMEOUT
+	gc := DEFALUT_GC_TIME
+	if config.Interfaces == nil && config.Networks == nil {
+		return nil, errors.New("interface or networks must be set")
+	}
+	if config.Port != 0 {
+		port = config.Port
+	}
+	if config.Timeout != 0 {
+		timeout = uint64(config.Timeout)
+	}
+	if config.Gc != 0 {
+		gc = uint64(config.Gc)
+	}
+	if config.Interfaces != nil {
+		return New(config.Interfaces, port, timeout, gc, logLevel, logOut)
+	}
+	interfaces := make([]string, 0, len(config.Networks))
+	for _, network := range config.Networks {
+		link, err := linkFromNetwork(network)
+		if err != nil {
+			return nil, err
+		}
+		interfaces = append(interfaces, link.Attrs().Name)
+	}
+	return New(interfaces, port, timeout, gc, logLevel, logOut)
 }
 
 func Parse(data []byte) (*Packet, error) {
@@ -648,4 +676,26 @@ func (cmd RipCommand) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+func linkFromNetwork(network string) (netlink.Link, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	for _, iface := range interfaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return nil, err
+		}
+		for _, addr := range addrs {
+			switch v := addr.(type) {
+			case *net.IPNet:
+				if v.String() == network {
+					return netlink.LinkByIndex(iface.Index)
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("interface that has %s is not found", network)
 }

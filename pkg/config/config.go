@@ -8,14 +8,16 @@ import (
 	"path/filepath"
 
 	"github.com/terassyi/grp/pkg/bgp"
+	"github.com/terassyi/grp/pkg/rip"
 	"github.com/terassyi/grp/pkg/route"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	*Log `json:"log,omitempty" yaml:"log,omitempty"`
+	*Log         `json:"log,omitempty" yaml:"log,omitempty"`
 	RouteManager *route.Config `json:"routeManager,omitempty" yaml:"routeManager,omitempty"`
-	Bgp  *bgp.Config `json:"bgp,omitempty" yaml:"bgp,omitempty"`
+	Bgp          *bgp.Config   `json:"bgp,omitempty" yaml:"bgp,omitempty"`
+	Rip          *rip.Config   `json:"rip,omitempty" yaml:"rip,omitempty"`
 }
 
 type Log struct {
