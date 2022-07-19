@@ -5,9 +5,10 @@ package grp;
 option go_package = "github.com/terassyi/grp/pb";
 
 import "google/protobuf/empty.proto";
+import "grp.proto";
 
 service BgpApi {
-	rpc Health(HealthRequest) returns (google.protobuf.Empty);
+	rpc Health(grp.HealthRequest) returns (google.protobuf.Empty);
 	rpc GetLogPath(GetLogPathRequest) returns (GetLogPathResponse);
 
 	rpc Show(ShowRequest) returns (ShowResponse);
@@ -30,8 +31,6 @@ message GrpResult {
 	ResultCode result = 1;
 	string message = 2;
 }
-
-message HealthRequest {}
 
 message GetLogPathRequest {}
 

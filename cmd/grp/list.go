@@ -7,10 +7,12 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/pkg/constants"
+	"github.com/terassyi/grp/pkg/route"
 )
 
 var healthCheckMap = map[string]func() bool{
-	"bgp": bgpHealthCheck,
+	"bgp":           bgpHealthCheck,
+	"route-manager": route.RouteManagerHealthCheck,
 }
 
 var listCmd = &cobra.Command{
@@ -21,7 +23,7 @@ var listCmd = &cobra.Command{
 		table := tablewriter.NewWriter(os.Stdout)
 		table.SetHeader([]string{"Service", "Endpoint", "Status"})
 		for name, f := range healthCheckMap {
-			table.Append([]string{name, fmt.Sprintf("localhost:%d", constants.ServiceApiServerMap["bgp"]), fmt.Sprintf("%v", f())})
+			table.Append([]string{name, fmt.Sprintf("localhost:%d", constants.ServiceApiServerMap[name]), fmt.Sprintf("%v", f())})
 		}
 		table.Render()
 	},

@@ -13,6 +13,7 @@ type Config struct {
 	Port      int        `json:"port,omitempty" yaml:"port,omitempty"`
 	Networks  []string   `json:"networks,omitempty" yaml:"networks,omitempty"`
 	Neighbors []Neighbor `json:"neighbors,omitempty" yaml:"neighbors,omitempty"`
+	RouteManagerEndpoint *string `json:"routeManagerEndpoint,omitempty" yaml:"routeManagerEndpoint,omitempty"`
 }
 
 type Neighbor struct {

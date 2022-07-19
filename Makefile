@@ -25,8 +25,12 @@ build:
 
 .PHONY: protogen
 protogen:
+	protoc -Ipb --go_out=module=$(PROJECT)/pb:pb grp.proto
+	protoc -Ipb --go-grpc_out=module=$(PROJECT)/pb:pb grp.proto
 	protoc -Ipb --go_out=module=$(PROJECT)/pb:pb bgp.proto
 	protoc -Ipb --go-grpc_out=module=$(PROJECT)/pb:pb bgp.proto
+	protoc -Ipb --go_out=module=$(PROJECT)/pb:pb route.proto
+	protoc -Ipb --go-grpc_out=module=$(PROJECT)/pb:pb route.proto
 
 .PHONY: up
 up:

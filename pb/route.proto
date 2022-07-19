@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package grp;
+
+option go_package = "github.com/terassyi/grp/pb";
+
+import "google/protobuf/empty.proto";
+import "grp.proto";
+
+service RouteApi {
+	rpc Health(grp.HealthRequest) returns (google.protobuf.Empty);
+	rpc SetRoute(SetRouteRequest) returns (google.protobuf.Empty);
+}
+
+enum AdministrativeDistance {
+	ADConnected  = 0;
+	ADStatic     = 1;
+	ADEBGP       = 20;
+	ADOSPF       = 110;
+	ADRIP        = 120;
+	ADIBGP       = 200;
+}
+
+enum Protocol {
+	Unspec = 0;
+	Redirect = 1;
+	Kernel = 2;
+	Boot = 3;
+	Static = 4;
+	Bgp = 186;
+	IsIs = 187;
+	Ospf = 188;
+	Rip = 189;
+}
+
+message Route {
+	string destination = 1;
+	optional string src = 2;
+	optional string gw = 3;
+	string link = 4;
+	Protocol protocol = 5;
+	bool bgp_origin_external = 6;
+}
+
+message SetRouteRequest {
+	Route route = 1;
+}
+
