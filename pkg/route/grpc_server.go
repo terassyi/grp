@@ -18,7 +18,7 @@ import (
 
 const (
 	logPath                 = "/var/log/grp/route"
-	DefaultRouteMangerPort  = 6789
+	DefaultRouteManagerPort = 6789
 	DefaultRouteManagerHost = "localhost"
 )
 
@@ -111,7 +111,7 @@ func (r *RouteManger) SetRoute(ctx context.Context, in *pb.SetRouteRequest) (*em
 }
 
 func RouteManagerHealthCheck() bool {
-	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", DefaultRouteManagerHost, DefaultRouteMangerPort), grpc.WithInsecure())
+	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", DefaultRouteManagerHost, DefaultRouteManagerPort), grpc.WithInsecure())
 	if err != nil {
 		fmt.Println(err)
 		return false

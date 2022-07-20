@@ -56,16 +56,29 @@ var ripCmd = &cobra.Command{
 				fmt.Println(err)
 				os.Exit(1)
 			}
-		}
-		config, err := config.Load(file)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-		r, err = rip.FromConfig(config.Rip, level, out)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(-1)
+		} else {
+			config, err := config.Load(file)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			if links != nil {
+				config.Rip.Interfaces = links
+			}
+			if port != 0 {
+				config.Rip.Port = port
+			}
+			if timeout != 0 {
+				config.Rip.Timeout = int(timeout)
+			}
+			if gcTime != 0 {
+				config.Rip.Gc = int(gcTime)
+			}
+			r, err = rip.FromConfig(config.Rip, level, out)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(-1)
+			}
 		}
 		if err := r.Poll(); err != nil {
 			fmt.Println(err)

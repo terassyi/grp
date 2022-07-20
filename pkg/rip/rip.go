@@ -8,11 +8,16 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
+	"github.com/terassyi/grp/pb"
 	"github.com/terassyi/grp/pkg/log"
 	"github.com/terassyi/grp/pkg/rib"
+	routeManager "github.com/terassyi/grp/pkg/route"
 	"github.com/vishvananda/netlink"
 )
 
@@ -23,18 +28,20 @@ var (
 // Routing Information Protocol
 // https://datatracker.ietf.org/doc/html/rfc1058
 type Rip struct {
-	links   []netlink.Link
-	addrs   []netlink.Addr
-	port    int
-	rx      chan message
-	tx      chan message
-	timer   time.Ticker
-	gcTimer time.Ticker
-	trigger chan struct{}
-	timeout uint64
-	gcTime  uint64
-	table   *table
-	logger  log.Logger
+	links                []netlink.Link
+	addrs                []netlink.Addr
+	port                 int
+	rx                   chan message
+	tx                   chan message
+	timer                time.Ticker
+	gcTimer              time.Ticker
+	trigger              chan struct{}
+	timeout              uint64
+	gcTime               uint64
+	table                *table
+	logger               log.Logger
+	routeManagerEndpoint string
+	routeManager         pb.RouteApiClient
 }
 
 // RIP packet format
@@ -129,19 +136,27 @@ func New(names []string, port int, timeout, gcTime uint64, logLevel int, logOutp
 	if err != nil {
 		return nil, err
 	}
+	logger.SetProtocol("rip")
+	if timeout == 0 {
+		timeout = DEFALUT_TIMEOUT
+	}
+	if gcTime == 0 {
+		gcTime = DEFALUT_GC_TIME
+	}
 	return &Rip{
-		rx:      make(chan message, 128),
-		tx:      make(chan message, 128),
-		links:   links,
-		addrs:   addrs,
-		port:    port,
-		timer:   *time.NewTicker(time.Second * 30),
-		gcTimer: *time.NewTicker(time.Second * 1),
-		trigger: make(chan struct{}, 1),
-		timeout: timeout,
-		gcTime:  gcTime,
-		table:   table,
-		logger:  logger,
+		rx:                   make(chan message, 128),
+		tx:                   make(chan message, 128),
+		links:                links,
+		addrs:                addrs,
+		port:                 port,
+		timer:                *time.NewTicker(time.Second * 30),
+		gcTimer:              *time.NewTicker(time.Second * 1),
+		trigger:              make(chan struct{}, 1),
+		timeout:              timeout,
+		gcTime:               gcTime,
+		table:                table,
+		logger:               logger,
+		routeManagerEndpoint: fmt.Sprintf("%s:%d", routeManager.DefaultRouteManagerHost, routeManager.DefaultRouteManagerPort),
 	}, nil
 }
 
@@ -313,18 +328,31 @@ func (r *Rip) init() error {
 }
 
 func (r *Rip) Poll() error {
-	ctx, _ := context.WithCancel(context.Background())
+	client, err := routeManager.NewRouteManagerClient(r.routeManagerEndpoint)
+	if err != nil {
+		r.logger.Warn("Route manager is not running")
+	}
+	r.routeManager = client
+	ctx, cancel := context.WithCancel(context.Background())
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh,
+		syscall.SIGINT,
+		syscall.SIGTERM)
 	for idx := range r.links {
 		go r.rxtxLoopLink(ctx, idx)
 	}
 	if err := r.init(); err != nil {
+		cancel()
 		return err
 	}
-	r.poll()
+	go r.poll(ctx)
+	<-sigCh
+	r.logger.Info("Receive a signal. Terminate GRP RIP daemon.")
+	cancel()
 	return nil
 }
 
-func (r *Rip) poll() {
+func (r *Rip) poll(ctx context.Context) {
 	r.logger.Info("GRP RIP polling start...")
 	for {
 		select {
@@ -344,6 +372,8 @@ func (r *Rip) poll() {
 			if err := r.rxHandle(&msg); err != nil {
 				r.logger.Err("RIP ERROR: %v\n", err)
 			}
+		case <-ctx.Done():
+			return
 		}
 	}
 }
@@ -482,7 +512,6 @@ func (r *Rip) response(link netlink.Link, addr net.IP, packet *Packet) error {
 						return err
 					}
 				}
-
 			}
 		}
 	}

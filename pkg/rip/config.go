@@ -8,11 +8,12 @@ import (
 )
 
 type Config struct {
-	Interfaces []string `json:"interfaces,omitempty" yaml:"interfaces,omitempty"`
-	Networks   []string `json:"networks,omitempty" yaml:"networks,omitempty"`
-	Port       int      `json:"port" "yaml:"port"`
-	Timeout    int      `json:"timeout" yaml:"timeout"`
-	Gc         int      `json:"gc" yaml:"gc`
+	Interfaces           []string `json:"interfaces,omitempty" yaml:"interfaces,omitempty"`
+	Networks             []string `json:"networks,omitempty" yaml:"networks,omitempty"`
+	Port                 int      `json:"port" "yaml:"port"`
+	Timeout              int      `json:"timeout" yaml:"timeout"`
+	Gc                   int      `json:"gc" yaml:"gc`
+	RouteManagerEndpoint string   `json:"routeManagerEndpoint,omitempty" yaml:"routeManagerEndpoint,omitempty"`
 }
 
 func ConfigFromBytes(data []byte, ext string) (*Config, error) {
