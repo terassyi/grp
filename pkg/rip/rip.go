@@ -645,7 +645,23 @@ func (r *Rip) commit(link netlink.Link, dst *net.IPNet, gateway net.IP, metric u
 		route.gateway = gateway
 		route.metric = metric
 		route.state = ROUTE_STATE_UPDATED // set route update flag
-		return rib.Replace4(link, dst, gateway, rib.RT_PROTO_RIP)
+		gw := gateway.String()
+		if r.routeManager == nil {
+			r.logger.Warn("Route manager is not running")
+			return nil
+		}
+		if _, err := r.routeManager.SetRoute(context.Background(), &pb.SetRouteRequest{
+			Route: &pb.Route{
+				Destination:       dst.String(),
+				Gw:                &gw,
+				Link:              link.Attrs().Name,
+				Protocol:          pb.Protocol(routeManager.RT_PROTO_RIP),
+				BgpOriginExternal: false,
+			},
+		}); err != nil {
+			return err
+		}
+		return nil
 	}
 	r.table.mutex.Lock()
 	defer r.table.mutex.Unlock()
@@ -655,7 +671,23 @@ func (r *Rip) commit(link netlink.Link, dst *net.IPNet, gateway net.IP, metric u
 		out:     uint(link.Attrs().Index),
 		metric:  uint32(metric),
 	})
-	return rib.Add4(link, dst, gateway, rib.RT_PROTO_RIP)
+	if r.routeManager == nil {
+		r.logger.Warn("Route manager is not running")
+		return nil
+	}
+	gw := gateway.String()
+	if _, err := r.routeManager.SetRoute(context.Background(), &pb.SetRouteRequest{
+		Route: &pb.Route{
+			Destination:       dst.String(),
+			Gw:                &gw,
+			Link:              link.Attrs().Name,
+			Protocol:          pb.Protocol(routeManager.RT_PROTO_RIP),
+			BgpOriginExternal: false,
+		},
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Rip) lookupTable(dst *net.IPNet) *route {

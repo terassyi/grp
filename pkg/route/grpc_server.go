@@ -113,13 +113,11 @@ func (r *RouteManger) SetRoute(ctx context.Context, in *pb.SetRouteRequest) (*em
 func RouteManagerHealthCheck() bool {
 	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", DefaultRouteManagerHost, DefaultRouteManagerPort), grpc.WithInsecure())
 	if err != nil {
-		fmt.Println(err)
 		return false
 	}
 	defer conn.Close()
 	client := pb.NewRouteApiClient(conn)
 	if _, err := client.Health(context.Background(), &pb.HealthRequest{}); err != nil {
-		fmt.Println(err)
 		return false
 	}
 	return true
