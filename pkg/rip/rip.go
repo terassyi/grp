@@ -25,6 +25,8 @@ var (
 	RipRequestNoEntry error = errors.New("Request no entry")
 )
 
+var mask24 net.IPMask = net.IPv4Mask(0xff, 0xff, 0xff, 0x00)
+
 // Routing Information Protocol
 // https://datatracker.ietf.org/doc/html/rfc1058
 type Rip struct {
@@ -164,6 +166,7 @@ func FromConfig(config *Config, logLevel int, logOut string) (*Rip, error) {
 	port := PORT
 	timeout := DEFALUT_TIMEOUT
 	gc := DEFALUT_GC_TIME
+	fmt.Println(config.Networks)
 	if config.Interfaces == nil && config.Networks == nil {
 		return nil, errors.New("interface or networks must be set")
 	}
@@ -176,7 +179,7 @@ func FromConfig(config *Config, logLevel int, logOut string) (*Rip, error) {
 	if config.Gc != 0 {
 		gc = uint64(config.Gc)
 	}
-	if config.Interfaces != nil {
+	if len(config.Interfaces) != 0 {
 		return New(config.Interfaces, port, timeout, gc, logLevel, logOut)
 	}
 	interfaces := make([]string, 0, len(config.Networks))
@@ -341,6 +344,12 @@ func (r *Rip) Poll() error {
 	for idx := range r.links {
 		go r.rxtxLoopLink(ctx, idx)
 	}
+	ifnames := make([]string, 0)
+	for _, iface := range r.links {
+		ifnames = append(ifnames, iface.Attrs().Name)
+	}
+	r.logger.Info("interfaces: %v", ifnames)
+	r.logger.Info("timeout=%d gc_time=%d", r.timeout, r.gcTime)
 	if err := r.init(); err != nil {
 		cancel()
 		return err
@@ -352,25 +361,46 @@ func (r *Rip) Poll() error {
 	return nil
 }
 
+func (r *Rip) PollWithContext(ctx context.Context) error {
+	r.logger.Info("RIPv1 daemon start")
+	client, err := routeManager.NewRouteManagerClient(r.routeManagerEndpoint)
+	if err != nil {
+		r.logger.Warn("Route manager is not running")
+	}
+	r.routeManager = client
+	for idx := range r.links {
+		go r.rxtxLoopLink(ctx, idx)
+	}
+	ifnames := make([]string, 0)
+	for _, iface := range r.links {
+		ifnames = append(ifnames, iface.Attrs().Name)
+	}
+	if err := r.init(); err != nil {
+		return err
+	}
+	r.poll(ctx)
+	return nil
+}
+
 func (r *Rip) poll(ctx context.Context) {
 	r.logger.Info("GRP RIP polling start...")
 	for {
 		select {
 		case <-r.timer.C:
 			if err := r.regularUpdate(); err != nil {
-				r.logger.Err("RIP ERROR: %v\n", err)
+				r.logger.Err("%v", err)
 			}
 		case <-r.gcTimer.C:
 			if err := r.gc(); err != nil {
-				r.logger.Err("RIP ERROR: %v\n", err)
+				r.logger.Err("%v", err)
 			}
 		case <-r.trigger:
 			if err := r.triggerUpdate(); err != nil {
-				r.logger.Err("RIP ERROR: %v\n", err)
+				r.logger.Err("%v", err)
 			}
 		case msg := <-r.rx:
 			if err := r.rxHandle(&msg); err != nil {
-				r.logger.Err("RIP ERROR: %v\n", err)
+				r.logger.Err("%v", err)
 			}
 		case <-ctx.Done():
 			return
@@ -430,7 +460,7 @@ func (r *Rip) buildResponse(req *Packet) (*Packet, error) {
 	}
 	res := &Packet{Command: RESPONSE, Version: 1, Entries: make([]*Entry, 0)}
 	for _, e := range req.Entries {
-		route := r.lookupTable(&net.IPNet{IP: e.Address, Mask: e.Address.To4().DefaultMask()})
+		route := r.lookupTable(&net.IPNet{IP: e.Address, Mask: mask24})
 		if route == nil {
 			res.Entries = append(res.Entries, &Entry{Family: netlink.FAMILY_V4, Address: e.Address, Metric: INF})
 		} else {
@@ -441,10 +471,10 @@ func (r *Rip) buildResponse(req *Packet) (*Packet, error) {
 }
 
 func (r *Rip) response(link netlink.Link, addr net.IP, packet *Packet) error {
-	r.logger.Info(r.dumpTable())
+	// r.logger.Info(r.dumpTable())
 	// if src port is not 520, ignore
 	// update neighbor information
-	a := &net.IPNet{IP: addr, Mask: addr.To4().DefaultMask()}
+	a := &net.IPNet{IP: addr, Mask: mask24}
 	_, cidr, err := net.ParseCIDR(a.String())
 	if err != nil {
 		return err
@@ -474,10 +504,10 @@ func (r *Rip) response(link netlink.Link, addr net.IP, packet *Packet) error {
 		if e.Family != addrFamilyIpv4 {
 			continue
 		}
-		route := r.lookupTable(&net.IPNet{IP: e.Address, Mask: e.Address.To4().DefaultMask()})
+		route := r.lookupTable(&net.IPNet{IP: e.Address, Mask: mask24})
 		if route == nil {
 			// route is not exist
-			if err := r.commit(link, &net.IPNet{IP: e.Address, Mask: e.Address.To4().DefaultMask()}, addr, e.Metric+1, false); err != nil {
+			if err := r.commit(link, &net.IPNet{IP: e.Address, Mask: mask24}, addr, e.Metric+1, false); err != nil {
 				return err
 			}
 		} else {
@@ -637,6 +667,7 @@ func (r *Rip) allRoutes() []*route {
 
 func (r *Rip) commit(link netlink.Link, dst *net.IPNet, gateway net.IP, metric uint32, replace bool) error {
 	// update RIP routing database
+	r.logger.Info("commit: %s %s to %s", dst.String(), gateway.String(), link.Attrs().Name)
 	if replace {
 		route := r.lookupTable(dst)
 		if route == nil {
@@ -752,7 +783,12 @@ func linkFromNetwork(network string) (netlink.Link, error) {
 		for _, addr := range addrs {
 			switch v := addr.(type) {
 			case *net.IPNet:
-				if v.String() == network {
+				_, target, err := net.ParseCIDR(network)
+				if err != nil {
+					return nil, err
+				}
+				fmt.Printf("target=%s v.IP=%s\n", target.String(), v.IP.String())
+				if target.Contains(v.IP) {
 					return netlink.LinkByIndex(iface.Index)
 				}
 			}

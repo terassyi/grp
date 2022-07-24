@@ -82,7 +82,7 @@ var showSubCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		bc := newBgpClient()
 		defer bc.conn.Close()
-		res, err := bc.Show(context.Background(), &pb.ShowRequest{})
+		res, err := bc.Show(context.Background(), &pb.BgpShowRequest{})
 		if err != nil {
 			os.Exit(1)
 		}

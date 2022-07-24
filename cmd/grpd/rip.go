@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -49,40 +50,43 @@ var ripCmd = &cobra.Command{
 			fmt.Println(err)
 			os.Exit(1)
 		}
-		var r *rip.Rip
 		if file == "" {
-			r, err = rip.New(links, port, timeout, gcTime, level, out)
+			server, err := rip.NewServer(level, out)
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}
-		} else {
-			config, err := config.Load(file)
-			if err != nil {
+			if err := server.Run(context.Background()); err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}
-			if links != nil {
-				config.Rip.Interfaces = links
-			}
-			if port != 0 {
-				config.Rip.Port = port
-			}
-			if timeout != 0 {
-				config.Rip.Timeout = int(timeout)
-			}
-			if gcTime != 0 {
-				config.Rip.Gc = int(gcTime)
-			}
-			r, err = rip.FromConfig(config.Rip, level, out)
-			if err != nil {
-				fmt.Println(err)
-				os.Exit(-1)
-			}
+			return
 		}
-		if err := r.Poll(); err != nil {
+		config, err := config.Load(file)
+		if err != nil {
 			fmt.Println(err)
-			os.Exit(-1)
+			os.Exit(1)
+		}
+		if links != nil {
+			config.Rip.Interfaces = links
+		}
+		if port != 0 {
+			config.Rip.Port = port
+		}
+		if timeout != 0 {
+			config.Rip.Timeout = int(timeout)
+		}
+		if gcTime != 0 {
+			config.Rip.Gc = int(gcTime)
+		}
+		server, err := rip.NewServerWithConfig(config.Rip, config.Level, config.Out)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		if err := server.Run(context.Background()); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
 		}
 	},
 }

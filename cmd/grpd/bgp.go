@@ -34,6 +34,7 @@ var bgpCmd = &cobra.Command{
 			if err := server.Run(context.Background()); err != nil {
 				log.Fatal(err)
 			}
+			return
 		}
 		conf, err := config.Load(file)
 		if err != nil {

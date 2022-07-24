@@ -42,12 +42,12 @@ func (s *server) Health(ctx context.Context, in *pb.HealthRequest) (*emptypb.Emp
 func (s *server) GetLogPath(ctx context.Context, in *pb.GetLogPathRequest) (*pb.GetLogPathResponse, error) {
 	return &pb.GetLogPathResponse{
 		Level: int32(s.bgp.logger.Level()),
-		Path: s.bgp.logger.Path(),
+		Path:  s.bgp.logger.Path(),
 	}, nil
 }
 
-func (s *server) Show(ctx context.Context, in *pb.ShowRequest) (*pb.ShowResponse, error) {
-	return &pb.ShowResponse{
+func (s *server) Show(ctx context.Context, in *pb.BgpShowRequest) (*pb.BgpShowResponse, error) {
+	return &pb.BgpShowResponse{
 		As:       int32(s.bgp.as),
 		Port:     int32(s.bgp.port),
 		RouterId: s.bgp.routerId.String(),

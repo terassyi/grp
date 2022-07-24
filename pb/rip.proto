@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package grp;
+
+option go_package = "github.com/terassyi/grp/pb";
+
+import "google/protobuf/empty.proto";
+import "grp.proto";
+
+service RipApi {
+	rpc Health(grp.HealthRequest) returns (google.protobuf.Empty);
+	rpc GetLogPath(grp.GetLogPathRequest) returns (grp.GetLogPathResponse);
+	rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
+	rpc Show(RipShowRequest) returns (RipShowResponse);
+	rpc Network(grp.NetworkRequest) returns (google.protobuf.Empty);
+}
+
+message RipShowRequest {}
+
+message RipShowResponse {
+	int32 timeout = 1;
+	int32 gc = 2;
+	repeated string interface = 3;
+}
+
+message GetVersionRequest {}
+
+message GetVersionResponse {
+	int32 version = 1;
+}
