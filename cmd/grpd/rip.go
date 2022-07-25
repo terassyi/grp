@@ -20,11 +20,6 @@ var ripCmd = &cobra.Command{
 			fmt.Println(err)
 			os.Exit(1)
 		}
-		links, err := cmd.Flags().GetStringSlice("if")
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
 		port, err := cmd.Flags().GetInt("port")
 		if err != nil {
 			fmt.Println(err)
@@ -67,9 +62,6 @@ var ripCmd = &cobra.Command{
 			fmt.Println(err)
 			os.Exit(1)
 		}
-		if links != nil {
-			config.Rip.Interfaces = links
-		}
 		if port != 0 {
 			config.Rip.Port = port
 		}
@@ -78,6 +70,12 @@ var ripCmd = &cobra.Command{
 		}
 		if gcTime != 0 {
 			config.Rip.Gc = int(gcTime)
+		}
+		if level != 0 {
+			config.Level = level
+		}
+		if out != "" {
+			config.Out = out
 		}
 		server, err := rip.NewServerWithConfig(config.Rip, config.Level, config.Out)
 		if err != nil {

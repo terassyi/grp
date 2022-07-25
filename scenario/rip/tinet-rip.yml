@@ -46,15 +46,9 @@ nodes:
 node_configs:
   - name: R0
     cmds:
-      - cmd: /usr/lib/frr/frr start
       - cmd: ip addr add 10.0.0.1/24 dev net0
       - cmd: ip addr add 10.1.0.1/24 dev net1
-      - cmd: >-
-          vtysh -c "conf t"
-          -c "router rip"
-          -c "version 1"
-          -c "network 10.0.0.0/24"
-          -c "network 10.1.0.0/24"
+      
   - name: R1
     cmds:
       - cmd: /usr/lib/frr/frr start

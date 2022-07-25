@@ -100,7 +100,7 @@ func (r *RouteManger) SetRoute(ctx context.Context, in *pb.SetRouteRequest) (*em
 		r.routes[route.Dst.String()] = route
 		return &emptypb.Empty{}, nil
 	}
-	if route.Ad < existingRoute.Ad {
+	if route.Ad <= existingRoute.Ad {
 		r.logger.Info("replace: %s", route)
 		if err := route.replace(); err != nil {
 			r.logger.Err("%s", err)

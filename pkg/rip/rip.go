@@ -8,10 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/terassyi/grp/pb"
@@ -19,6 +16,7 @@ import (
 	"github.com/terassyi/grp/pkg/rib"
 	routeManager "github.com/terassyi/grp/pkg/route"
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink/nl"
 )
 
 var (
@@ -30,8 +28,9 @@ var mask24 net.IPMask = net.IPv4Mask(0xff, 0xff, 0xff, 0x00)
 // Routing Information Protocol
 // https://datatracker.ietf.org/doc/html/rfc1058
 type Rip struct {
-	links                []netlink.Link
-	addrs                []netlink.Addr
+	links []netlink.Link
+	// addrs                []netlink.Addr
+	addrs                []*broadcastAddress
 	port                 int
 	rx                   chan message
 	tx                   chan message
@@ -80,6 +79,11 @@ type message struct {
 	data    []byte
 }
 
+type broadcastAddress struct {
+	addr      net.IP
+	broadcast net.IP
+}
+
 type RipCommand uint8
 
 const (
@@ -112,27 +116,42 @@ var (
 	addrFamilyIpv4 uint16 = 2
 )
 
-func New(names []string, port int, timeout, gcTime uint64, logLevel int, logOutput string) (*Rip, error) {
-	links := make([]netlink.Link, 0, len(names))
-	addrs := make([]netlink.Addr, 0, len(names))
-	for _, name := range names {
-		link, err := netlink.LinkByName(name)
+func New(networks []string, port int, timeout, gcTime uint64, logLevel int, logOutput string) (*Rip, error) {
+	links := make([]netlink.Link, 0, len(networks))
+	addrs := make([]*broadcastAddress, 0, len(networks))
+	table := newTable()
+	for _, network := range networks {
+		_, cidr, err := net.ParseCIDR(network)
 		if err != nil {
 			return nil, err
 		}
-		addr, err := netlink.AddrList(link, netlink.FAMILY_V4)
+		link, err := linkFromNetwork(network)
 		if err != nil {
 			return nil, err
 		}
-		if len(addr) == 0 {
-			return nil, fmt.Errorf("Address is not allocated to %d", link.Attrs().Index)
-		}
-		addrs = append(addrs, addr[0])
 		links = append(links, link)
-	}
-	table := &table{
-		routes: make([]*route, 0),
-		mutex:  sync.Mutex{},
+
+		addrss, err := netlink.AddrList(link, nl.FAMILY_V4)
+		if err != nil {
+			return nil, err
+		}
+		var b *broadcastAddress
+		for _, a := range addrss {
+			fmt.Println(a.Broadcast.String())
+			if cidr.Contains(a.IP) {
+				b = &broadcastAddress{
+					addr:      a.IP,
+					broadcast: broadcast(cidr),
+				}
+			}
+		}
+		if b == nil {
+			return nil, fmt.Errorf("gateway addres  is not found for %s", network)
+		}
+		addrs = append(addrs, b)
+		if err := table.addLocalRoute(cidr, link, b.addr); err != nil {
+			return nil, err
+		}
 	}
 	logger, err := log.New(log.Level(logLevel), logOutput)
 	if err != nil {
@@ -167,9 +186,6 @@ func FromConfig(config *Config, logLevel int, logOut string) (*Rip, error) {
 	timeout := DEFALUT_TIMEOUT
 	gc := DEFALUT_GC_TIME
 	fmt.Println(config.Networks)
-	if config.Interfaces == nil && config.Networks == nil {
-		return nil, errors.New("interface or networks must be set")
-	}
 	if config.Port != 0 {
 		port = config.Port
 	}
@@ -179,18 +195,7 @@ func FromConfig(config *Config, logLevel int, logOut string) (*Rip, error) {
 	if config.Gc != 0 {
 		gc = uint64(config.Gc)
 	}
-	if len(config.Interfaces) != 0 {
-		return New(config.Interfaces, port, timeout, gc, logLevel, logOut)
-	}
-	interfaces := make([]string, 0, len(config.Networks))
-	for _, network := range config.Networks {
-		link, err := linkFromNetwork(network)
-		if err != nil {
-			return nil, err
-		}
-		interfaces = append(interfaces, link.Attrs().Name)
-	}
-	return New(interfaces, port, timeout, gc, logLevel, logOut)
+	return New(config.Networks, port, timeout, gc, logLevel, logOut)
 }
 
 func Parse(data []byte) (*Packet, error) {
@@ -292,24 +297,7 @@ func buildPacket(cmd RipCommand, routes []*route) (*Packet, error) {
 }
 
 func (r *Rip) init() error {
-	for i, link := range r.links {
-		routes, err := netlink.RouteList(link, netlink.FAMILY_V4)
-		if err != nil {
-			return err
-		}
-		r.table.mutex.Lock()
-		for _, rr := range routes {
-			if rr.Dst == nil {
-				continue
-			}
-			r.table.routes = append(r.table.routes, &route{
-				dst:     rr.Dst,
-				gateway: rr.Src,
-				out:     uint(link.Attrs().Index),
-				metric:  1,
-			})
-		}
-		r.table.mutex.Unlock()
+	for i := range r.links {
 		// initial request
 		def := &net.IPNet{IP: DEFAULT_ROUTE, Mask: net.IPMask{0, 0, 0, 0}}
 		emptyRoutes := []*route{{dst: def, metric: INF}}
@@ -322,42 +310,11 @@ func (r *Rip) init() error {
 			return err
 		}
 		r.tx <- message{
-			addr: r.addrs[i].Broadcast,
+			addr: r.addrs[i].broadcast,
 			port: PORT,
 			data: d,
 		}
 	}
-	return nil
-}
-
-func (r *Rip) Poll() error {
-	client, err := routeManager.NewRouteManagerClient(r.routeManagerEndpoint)
-	if err != nil {
-		r.logger.Warn("Route manager is not running")
-	}
-	r.routeManager = client
-	ctx, cancel := context.WithCancel(context.Background())
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh,
-		syscall.SIGINT,
-		syscall.SIGTERM)
-	for idx := range r.links {
-		go r.rxtxLoopLink(ctx, idx)
-	}
-	ifnames := make([]string, 0)
-	for _, iface := range r.links {
-		ifnames = append(ifnames, iface.Attrs().Name)
-	}
-	r.logger.Info("interfaces: %v", ifnames)
-	r.logger.Info("timeout=%d gc_time=%d", r.timeout, r.gcTime)
-	if err := r.init(); err != nil {
-		cancel()
-		return err
-	}
-	go r.poll(ctx)
-	<-sigCh
-	r.logger.Info("Receive a signal. Terminate GRP RIP daemon.")
-	cancel()
 	return nil
 }
 
@@ -368,12 +325,9 @@ func (r *Rip) PollWithContext(ctx context.Context) error {
 		r.logger.Warn("Route manager is not running")
 	}
 	r.routeManager = client
-	for idx := range r.links {
+	for idx, link := range r.links {
+		r.logger.Info("associate link=%s", link.Attrs().Name)
 		go r.rxtxLoopLink(ctx, idx)
-	}
-	ifnames := make([]string, 0)
-	for _, iface := range r.links {
-		ifnames = append(ifnames, iface.Attrs().Name)
 	}
 	if err := r.init(); err != nil {
 		return err
@@ -417,11 +371,10 @@ func (r *Rip) rxHandle(msg *message) error {
 		return fmt.Errorf("Invalid version")
 	}
 	for _, a := range r.addrs {
-		if msg.addr.Equal(a.Broadcast) || msg.addr.Equal(a.IP) {
+		if msg.addr.Equal(a.broadcast) || msg.addr.Equal(a.addr) {
 			return nil
 		}
 	}
-	r.logger.Info("%s:%d\n", msg.addr, msg.port)
 	switch packet.Command {
 	case REQUEST:
 		res, err := r.request(packet)
@@ -471,7 +424,6 @@ func (r *Rip) buildResponse(req *Packet) (*Packet, error) {
 }
 
 func (r *Rip) response(link netlink.Link, addr net.IP, packet *Packet) error {
-	// r.logger.Info(r.dumpTable())
 	// if src port is not 520, ignore
 	// update neighbor information
 	a := &net.IPNet{IP: addr, Mask: mask24}
@@ -550,10 +502,10 @@ func (r *Rip) response(link netlink.Link, addr net.IP, packet *Packet) error {
 
 func (r *Rip) rxtxLoopLink(ctx context.Context, index int) error {
 	host := &net.UDPAddr{
-		IP:   r.addrs[index].Broadcast,
+		IP:   r.addrs[index].broadcast,
 		Port: r.port,
 	}
-	r.logger.Info("RIP Rx routine start... %s:%d\n", r.addrs[index].Broadcast, r.port)
+	r.logger.Info("RIP Rx routine start... %s %s:%d", r.links[index].Attrs().Name, r.addrs[index].broadcast, r.port)
 	listener, err := net.ListenUDP("udp", host)
 	if err != nil {
 		return err
@@ -647,7 +599,7 @@ func (r *Rip) triggerUpdate() error {
 		return err
 	}
 	for _, addr := range r.addrs {
-		r.tx <- message{addr: addr.Broadcast, port: PORT, data: data}
+		r.tx <- message{addr: addr.broadcast, port: PORT, data: data}
 	}
 	return nil
 }
@@ -667,7 +619,7 @@ func (r *Rip) allRoutes() []*route {
 
 func (r *Rip) commit(link netlink.Link, dst *net.IPNet, gateway net.IP, metric uint32, replace bool) error {
 	// update RIP routing database
-	r.logger.Info("commit: %s %s to %s", dst.String(), gateway.String(), link.Attrs().Name)
+	r.logger.Info("commit: %s %s to %s metric=%d", dst.String(), gateway.String(), link.Attrs().Name, metric)
 	if replace {
 		route := r.lookupTable(dst)
 		if route == nil {
@@ -795,4 +747,34 @@ func linkFromNetwork(network string) (netlink.Link, error) {
 		}
 	}
 	return nil, fmt.Errorf("interface that has %s is not found", network)
+}
+
+func newTable() *table {
+	return &table{
+		routes: make([]*route, 0),
+		mutex:  sync.Mutex{},
+	}
+}
+
+func (t *table) addLocalRoute(network *net.IPNet, link netlink.Link, addr net.IP) error {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	t.routes = append(t.routes, &route{
+		dst:     network,
+		metric:  1,
+		out:     uint(link.Attrs().Index),
+		gateway: addr,
+	})
+	return nil
+}
+
+func broadcast(cidr *net.IPNet) net.IP {
+	addr := cidr.IP.To4()
+	mask := cidr.Mask
+	broadcast := net.IPv4(0x00, 0x00, 0x00, 0x00)
+	for i := 0; i < 4; i++ {
+		broadcast[i+12] = (addr[i] & mask[i]) | ^mask[i]
+	}
+	return broadcast
 }

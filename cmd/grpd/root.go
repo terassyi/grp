@@ -16,7 +16,6 @@ var rootCmd = &cobra.Command{
 func init() {
 	// rip
 	ripCmd.Flags().StringP("config", "c", "", "configuration file path")
-	ripCmd.Flags().StringSliceP("if", "i", []string{}, "Interfaces to handle RIP.")
 	ripCmd.Flags().IntP("port", "p", 520, "RIP running port.")
 	ripCmd.Flags().Uint64P("timeout", "t", rip.DEFALUT_TIMEOUT, "RIP timeout time.")
 	ripCmd.Flags().Uint64P("gc", "g", rip.DEFALUT_GC_TIME, "RIP gc time.")

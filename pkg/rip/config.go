@@ -8,7 +8,6 @@ import (
 )
 
 type Config struct {
-	Interfaces           []string `json:"interfaces,omitempty" yaml:"interfaces,omitempty"`
 	Networks             []string `json:"networks,omitempty" yaml:"networks,omitempty"`
 	Port                 int      `json:"port" "yaml:"port"`
 	Timeout              int      `json:"timeout" yaml:"timeout"`
