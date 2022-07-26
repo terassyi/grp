@@ -10,6 +10,7 @@ import "grp.proto";
 service RouteApi {
 	rpc Health(grp.HealthRequest) returns (google.protobuf.Empty);
 	rpc SetRoute(SetRouteRequest) returns (google.protobuf.Empty);
+	rpc DeleteRoute(DeleteRouteRequest) returns (google.protobuf.Empty);
 }
 
 enum AdministrativeDistance {
@@ -46,3 +47,6 @@ message SetRouteRequest {
 	Route route = 1;
 }
 
+message DeleteRouteRequest {
+	Route route = 1;
+}

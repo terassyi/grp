@@ -537,7 +537,15 @@ func (r *Rip) gc() error {
 			if err != nil {
 				return err
 			}
-			if err := rib.Delete4(link, rr.dst, nil, nil); err != nil {
+			gw := rr.gateway.String()
+			if _, err := r.routeManager.DeleteRoute(context.Background(), &pb.DeleteRouteRequest{
+				Route: &pb.Route{
+					Destination: rr.dst.String(),
+					Gw:          &gw,
+					Link:        link.Attrs().Name,
+					Protocol:    pb.Protocol(routeManager.RT_PROTO_RIP),
+				},
+			}); err != nil {
 				return err
 			}
 			continue

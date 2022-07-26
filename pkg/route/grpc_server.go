@@ -110,6 +110,27 @@ func (r *RouteManger) SetRoute(ctx context.Context, in *pb.SetRouteRequest) (*em
 	return &emptypb.Empty{}, nil
 }
 
+func (r *RouteManger) DeleteRoute(ctx context.Context, in *pb.DeleteRouteRequest) (*emptypb.Empty, error) {
+	r.logger.Info("delete route request %s", in.Route.Destination)
+	route, err := RouteFromReq(in.Route)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "failed to parse request to route")
+	}
+	targetRoute, ok := r.routes[route.Dst.String()]
+	if !ok {
+		r.logger.Warn("deletion target doesn't exist")
+		return &emptypb.Empty{}, nil
+	}
+	if targetRoute.Ad == ADConnected {
+		return &emptypb.Empty{}, nil
+	}
+	if err := targetRoute.delete(); err != nil {
+		return nil, status.Error(codes.Aborted, err.Error())
+	}
+	delete(r.routes, targetRoute.Dst.String())
+	return &emptypb.Empty{}, nil
+}
+
 func RouteManagerHealthCheck() bool {
 	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", DefaultRouteManagerHost, DefaultRouteManagerPort), grpc.WithInsecure())
 	if err != nil {

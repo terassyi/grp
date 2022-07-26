@@ -25,6 +25,7 @@ const _ = grpc.SupportPackageIsVersion7
 type RouteApiClient interface {
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 	SetRoute(ctx context.Context, in *SetRouteRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	DeleteRoute(ctx context.Context, in *DeleteRouteRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 }
 
 type routeApiClient struct {
@@ -53,12 +54,22 @@ func (c *routeApiClient) SetRoute(ctx context.Context, in *SetRouteRequest, opts
 	return out, nil
 }
 
+func (c *routeApiClient) DeleteRoute(ctx context.Context, in *DeleteRouteRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, "/grp.RouteApi/DeleteRoute", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RouteApiServer is the server API for RouteApi service.
 // All implementations must embed UnimplementedRouteApiServer
 // for forward compatibility
 type RouteApiServer interface {
 	Health(context.Context, *HealthRequest) (*empty.Empty, error)
 	SetRoute(context.Context, *SetRouteRequest) (*empty.Empty, error)
+	DeleteRoute(context.Context, *DeleteRouteRequest) (*empty.Empty, error)
 	mustEmbedUnimplementedRouteApiServer()
 }
 
@@ -71,6 +82,9 @@ func (UnimplementedRouteApiServer) Health(context.Context, *HealthRequest) (*emp
 }
 func (UnimplementedRouteApiServer) SetRoute(context.Context, *SetRouteRequest) (*empty.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetRoute not implemented")
+}
+func (UnimplementedRouteApiServer) DeleteRoute(context.Context, *DeleteRouteRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteRoute not implemented")
 }
 func (UnimplementedRouteApiServer) mustEmbedUnimplementedRouteApiServer() {}
 
@@ -121,6 +135,24 @@ func _RouteApi_SetRoute_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RouteApi_DeleteRoute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteRouteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RouteApiServer).DeleteRoute(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/grp.RouteApi/DeleteRoute",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RouteApiServer).DeleteRoute(ctx, req.(*DeleteRouteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RouteApi_ServiceDesc is the grpc.ServiceDesc for RouteApi service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -135,6 +167,10 @@ var RouteApi_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetRoute",
 			Handler:    _RouteApi_SetRoute_Handler,
+		},
+		{
+			MethodName: "DeleteRoute",
+			Handler:    _RouteApi_DeleteRoute_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
