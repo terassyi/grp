@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/terassyi/grp/pb"
 	"github.com/terassyi/grp/pkg/log"
@@ -24,9 +25,14 @@ const (
 
 type RouteManger struct {
 	pb.UnimplementedRouteApiServer
-	routes   map[string]*Route
+	table    *table
 	logger   log.Logger
 	endpoint string
+}
+
+type table struct {
+	mutex  sync.RWMutex
+	routes map[string]*Route
 }
 
 func New(host string, port int) (*RouteManger, error) {
@@ -43,7 +49,9 @@ func New(host string, port int) (*RouteManger, error) {
 	}
 	endpoint := fmt.Sprintf("%s:%d", host, port)
 	r := &RouteManger{
-		routes:   all,
+		table: &table{
+			routes: all,
+		},
 		logger:   logger,
 		endpoint: endpoint,
 	}
@@ -90,14 +98,16 @@ func (r *RouteManger) SetRoute(ctx context.Context, in *pb.SetRouteRequest) (*em
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "failed to parse request to route")
 	}
-	existingRoute, ok := r.routes[route.Dst.String()]
+	r.table.mutex.Lock()
+	defer r.table.mutex.Unlock()
+	existingRoute, ok := r.table.routes[route.Dst.String()]
 	if !ok {
 		r.logger.Info("add: %s", route)
 		if err := route.add(); err != nil {
 			r.logger.Err("%s", err)
 			return nil, status.Error(codes.Aborted, err.Error())
 		}
-		r.routes[route.Dst.String()] = route
+		r.table.routes[route.Dst.String()] = route
 		return &emptypb.Empty{}, nil
 	}
 	if route.Ad <= existingRoute.Ad {
@@ -116,7 +126,9 @@ func (r *RouteManger) DeleteRoute(ctx context.Context, in *pb.DeleteRouteRequest
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "failed to parse request to route")
 	}
-	targetRoute, ok := r.routes[route.Dst.String()]
+	r.table.mutex.Lock()
+	defer r.table.mutex.Unlock()
+	targetRoute, ok := r.table.routes[route.Dst.String()]
 	if !ok {
 		r.logger.Warn("deletion target doesn't exist")
 		return &emptypb.Empty{}, nil
@@ -127,8 +139,31 @@ func (r *RouteManger) DeleteRoute(ctx context.Context, in *pb.DeleteRouteRequest
 	if err := targetRoute.delete(); err != nil {
 		return nil, status.Error(codes.Aborted, err.Error())
 	}
-	delete(r.routes, targetRoute.Dst.String())
+	delete(r.table.routes, targetRoute.Dst.String())
 	return &emptypb.Empty{}, nil
+}
+
+func (r *RouteManger) ListRoute(ctx context.Context, in *pb.ListRouteRequest) (*pb.ListRouteResponse, error) {
+	pbRoutes := make([]*pb.Route, 0)
+	r.table.mutex.RLock()
+	defer r.table.mutex.RUnlock()
+	for _, route := range r.table.routes {
+		gw := route.Gw.String()
+		link, err := netlink.LinkByIndex(route.LinkIndex)
+		if err != nil {
+			return nil, status.Error(codes.Aborted, err.Error())
+		}
+		pbRoutes = append(pbRoutes, &pb.Route{
+			Destination:       route.Dst.String(),
+			Src:               nil,
+			Gw:                &gw,
+			Link:              link.Attrs().Name,
+			Protocol:          pb.Protocol(route.Protocol),
+		})
+	}
+	return &pb.ListRouteResponse{
+		Route: pbRoutes,
+	}, nil
 }
 
 func RouteManagerHealthCheck() bool {
