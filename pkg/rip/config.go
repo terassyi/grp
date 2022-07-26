@@ -1,4 +1,4 @@
-package bgp
+package rip
 
 import (
 	"encoding/json"
@@ -9,18 +9,12 @@ import (
 )
 
 type Config struct {
-	Log                  *log.Log    `json:"log,omitempty" yaml:"log,omitempty"`
-	AS                   int        `json:"AS" yaml:"AS"`
-	RouterId             string     `json:"router-id" yaml:"router-id"`
-	Port                 int        `json:"port,omitempty" yaml:"port,omitempty"`
-	Networks             []string   `json:"networks,omitempty" yaml:"networks,omitempty"`
-	Neighbors            []Neighbor `json:"neighbors,omitempty" yaml:"neighbors,omitempty"`
-	RouteManagerEndpoint *string    `json:"routeManagerEndpoint,omitempty" yaml:"routeManagerEndpoint,omitempty"`
-}
-
-type Neighbor struct {
-	Address string `json:"address" yaml:"address"`
-	AS      int    `json:"as" yaml:"AS"`
+	Log                  *log.Log  `json:"log,omitempty" yaml:"log,omitempty"`
+	Networks             []string `json:"networks,omitempty" yaml:"networks,omitempty"`
+	Port                 int      `json:"port" "yaml:"port"`
+	Timeout              int      `json:"timeout" yaml:"timeout"`
+	Gc                   int      `json:"gc" yaml:"gc`
+	RouteManagerEndpoint string   `json:"routeManagerEndpoint,omitempty" yaml:"routeManagerEndpoint,omitempty"`
 }
 
 func ConfigFromBytes(data []byte, ext string) (*Config, error) {

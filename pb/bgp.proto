@@ -9,9 +9,9 @@ import "grp.proto";
 
 service BgpApi {
 	rpc Health(grp.HealthRequest) returns (google.protobuf.Empty);
-	rpc GetLogPath(GetLogPathRequest) returns (GetLogPathResponse);
+	rpc GetLogPath(grp.GetLogPathRequest) returns (grp.GetLogPathResponse);
 
-	rpc Show(ShowRequest) returns (ShowResponse);
+	rpc Show(BgpShowRequest) returns (BgpShowResponse);
 	rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
 	rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
 
@@ -32,16 +32,9 @@ message GrpResult {
 	string message = 2;
 }
 
-message GetLogPathRequest {}
+message BgpShowRequest {}
 
-message GetLogPathResponse {
-	int32 level = 1;
-	string path = 2;
-}
-
-message ShowRequest {}
-
-message ShowResponse {
+message BgpShowResponse {
 	int32 as = 1;
 	int32 port = 2;
 	string routerId = 3;
@@ -83,6 +76,3 @@ message RouterIdRequest {
 	string routerId = 1;
 }
 
-message NetworkRequest {
-	repeated string networks = 1;
-}

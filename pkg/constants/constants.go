@@ -1,7 +1,7 @@
 package constants
 
 var ServiceApiServerMap map[string]int = map[string]int{
-	"ripv1": 5200,
-	"bgp": 1790,
+	"rip":           5200,
+	"bgp":           1790,
 	"route-manager": 6789,
 }

@@ -11,20 +11,25 @@ import (
 	"sync"
 	"time"
 
+	"github.com/terassyi/grp/pb"
 	"github.com/terassyi/grp/pkg/log"
 	"github.com/terassyi/grp/pkg/rib"
+	routeManager "github.com/terassyi/grp/pkg/route"
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink/nl"
 )
 
 var (
 	RipRequestNoEntry error = errors.New("Request no entry")
 )
 
+var mask24 net.IPMask = net.IPv4Mask(0xff, 0xff, 0xff, 0x00)
+
 // Routing Information Protocol
 // https://datatracker.ietf.org/doc/html/rfc1058
 type Rip struct {
 	links   []netlink.Link
-	addrs   []netlink.Addr
+	addrs   []*broadcastAddress
 	port    int
 	rx      chan message
 	tx      chan message
@@ -33,8 +38,12 @@ type Rip struct {
 	trigger chan struct{}
 	timeout uint64
 	gcTime  uint64
-	table   *table
-	logger  log.Logger
+
+	mutex                sync.RWMutex
+	table                *table
+	logger               log.Logger
+	routeManagerEndpoint string
+	routeManager         pb.RouteApiClient
 }
 
 // RIP packet format
@@ -71,6 +80,11 @@ type message struct {
 	data    []byte
 }
 
+type broadcastAddress struct {
+	addr      net.IP
+	broadcast net.IP
+}
+
 type RipCommand uint8
 
 const (
@@ -103,48 +117,86 @@ var (
 	addrFamilyIpv4 uint16 = 2
 )
 
-func New(names []string, port int, timeout, gcTime uint64, logLevel int, logOutput string) (*Rip, error) {
-	links := make([]netlink.Link, 0, len(names))
-	addrs := make([]netlink.Addr, 0, len(names))
-	for _, name := range names {
-		link, err := netlink.LinkByName(name)
+func New(networks []string, port int, timeout, gcTime uint64, logLevel int, logOutput string) (*Rip, error) {
+	links := make([]netlink.Link, 0, len(networks))
+	addrs := make([]*broadcastAddress, 0, len(networks))
+	table := newTable()
+	for _, network := range networks {
+		_, cidr, err := net.ParseCIDR(network)
 		if err != nil {
 			return nil, err
 		}
-		addr, err := netlink.AddrList(link, netlink.FAMILY_V4)
+		link, err := linkFromNetwork(network)
 		if err != nil {
 			return nil, err
 		}
-		if len(addr) == 0 {
-			return nil, fmt.Errorf("Address is not allocated to %d", link.Attrs().Index)
-		}
-		addrs = append(addrs, addr[0])
 		links = append(links, link)
-	}
-	table := &table{
-		routes: make([]*route, 0),
-		mutex:  sync.Mutex{},
+
+		addrss, err := netlink.AddrList(link, nl.FAMILY_V4)
+		if err != nil {
+			return nil, err
+		}
+		var b *broadcastAddress
+		for _, a := range addrss {
+			fmt.Println(a.Broadcast.String())
+			if cidr.Contains(a.IP) {
+				b = &broadcastAddress{
+					addr:      a.IP,
+					broadcast: broadcast(cidr),
+				}
+			}
+		}
+		if b == nil {
+			return nil, fmt.Errorf("gateway addres  is not found for %s", network)
+		}
+		addrs = append(addrs, b)
+		if err := table.addLocalRoute(cidr, link, b.addr); err != nil {
+			return nil, err
+		}
 	}
 	logger, err := log.New(log.Level(logLevel), logOutput)
 	if err != nil {
 		return nil, err
 	}
+	logger.SetProtocol("rip")
+	if timeout == 0 {
+		timeout = DEFALUT_TIMEOUT
+	}
+	if gcTime == 0 {
+		gcTime = DEFALUT_GC_TIME
+	}
 	return &Rip{
-		// rx:      make(chan []byte, 16),
-		// tx:      make(chan *Packet, 16),
-		rx:      make(chan message, 128),
-		tx:      make(chan message, 128),
-		links:   links,
-		addrs:   addrs,
-		port:    port,
-		timer:   *time.NewTicker(time.Second * 30),
-		gcTimer: *time.NewTicker(time.Second * 1),
-		trigger: make(chan struct{}, 1),
-		timeout: timeout,
-		gcTime:  gcTime,
-		table:   table,
-		logger:  logger,
+		rx:                   make(chan message, 128),
+		tx:                   make(chan message, 128),
+		links:                links,
+		addrs:                addrs,
+		port:                 port,
+		timer:                *time.NewTicker(time.Second * 30),
+		gcTimer:              *time.NewTicker(time.Second * 1),
+		trigger:              make(chan struct{}, 1),
+		timeout:              timeout,
+		gcTime:               gcTime,
+		table:                table,
+		logger:               logger,
+		routeManagerEndpoint: fmt.Sprintf("%s:%d", routeManager.DefaultRouteManagerHost, routeManager.DefaultRouteManagerPort),
 	}, nil
+}
+
+func FromConfig(config *Config, logLevel int, logOut string) (*Rip, error) {
+	port := PORT
+	timeout := DEFALUT_TIMEOUT
+	gc := DEFALUT_GC_TIME
+	fmt.Println(config.Networks)
+	if config.Port != 0 {
+		port = config.Port
+	}
+	if config.Timeout != 0 {
+		timeout = uint64(config.Timeout)
+	}
+	if config.Gc != 0 {
+		gc = uint64(config.Gc)
+	}
+	return New(config.Networks, port, timeout, gc, logLevel, logOut)
 }
 
 func Parse(data []byte) (*Packet, error) {
@@ -246,24 +298,7 @@ func buildPacket(cmd RipCommand, routes []*route) (*Packet, error) {
 }
 
 func (r *Rip) init() error {
-	for i, link := range r.links {
-		routes, err := netlink.RouteList(link, netlink.FAMILY_V4)
-		if err != nil {
-			return err
-		}
-		r.table.mutex.Lock()
-		for _, rr := range routes {
-			if rr.Dst == nil {
-				continue
-			}
-			r.table.routes = append(r.table.routes, &route{
-				dst:     rr.Dst,
-				gateway: rr.Src,
-				out:     uint(link.Attrs().Index),
-				metric:  1,
-			})
-		}
-		r.table.mutex.Unlock()
+	for i := range r.links {
 		// initial request
 		def := &net.IPNet{IP: DEFAULT_ROUTE, Mask: net.IPMask{0, 0, 0, 0}}
 		emptyRoutes := []*route{{dst: def, metric: INF}}
@@ -276,7 +311,7 @@ func (r *Rip) init() error {
 			return err
 		}
 		r.tx <- message{
-			addr: r.addrs[i].Broadcast,
+			addr: r.addrs[i].broadcast,
 			port: PORT,
 			data: d,
 		}
@@ -284,38 +319,46 @@ func (r *Rip) init() error {
 	return nil
 }
 
-func (r *Rip) Poll() error {
-	ctx, _ := context.WithCancel(context.Background())
-	for idx := range r.links {
+func (r *Rip) PollWithContext(ctx context.Context) error {
+	r.logger.Info("RIPv1 daemon start")
+	client, err := routeManager.NewRouteManagerClient(r.routeManagerEndpoint)
+	if err != nil {
+		r.logger.Warn("Route manager is not running")
+	}
+	r.routeManager = client
+	for idx, link := range r.links {
+		r.logger.Info("associate link=%s", link.Attrs().Name)
 		go r.rxtxLoopLink(ctx, idx)
 	}
 	if err := r.init(); err != nil {
 		return err
 	}
-	r.poll()
+	r.poll(ctx)
 	return nil
 }
 
-func (r *Rip) poll() {
+func (r *Rip) poll(ctx context.Context) {
 	r.logger.Info("GRP RIP polling start...")
 	for {
 		select {
 		case <-r.timer.C:
 			if err := r.regularUpdate(); err != nil {
-				r.logger.Err("RIP ERROR: %v\n", err)
+				r.logger.Err("%v", err)
 			}
 		case <-r.gcTimer.C:
 			if err := r.gc(); err != nil {
-				r.logger.Err("RIP ERROR: %v\n", err)
+				r.logger.Err("%v", err)
 			}
 		case <-r.trigger:
 			if err := r.triggerUpdate(); err != nil {
-				r.logger.Err("RIP ERROR: %v\n", err)
+				r.logger.Err("%v", err)
 			}
 		case msg := <-r.rx:
 			if err := r.rxHandle(&msg); err != nil {
-				r.logger.Err("RIP ERROR: %v\n", err)
+				r.logger.Err("%v", err)
 			}
+		case <-ctx.Done():
+			return
 		}
 	}
 }
@@ -329,11 +372,10 @@ func (r *Rip) rxHandle(msg *message) error {
 		return fmt.Errorf("Invalid version")
 	}
 	for _, a := range r.addrs {
-		if msg.addr.Equal(a.Broadcast) || msg.addr.Equal(a.IP) {
+		if msg.addr.Equal(a.broadcast) || msg.addr.Equal(a.addr) {
 			return nil
 		}
 	}
-	r.logger.Info("%s:%d\n", msg.addr, msg.port)
 	switch packet.Command {
 	case REQUEST:
 		res, err := r.request(packet)
@@ -372,7 +414,7 @@ func (r *Rip) buildResponse(req *Packet) (*Packet, error) {
 	}
 	res := &Packet{Command: RESPONSE, Version: 1, Entries: make([]*Entry, 0)}
 	for _, e := range req.Entries {
-		route := r.lookupTable(&net.IPNet{IP: e.Address, Mask: e.Address.To4().DefaultMask()})
+		route := r.lookupTable(&net.IPNet{IP: e.Address, Mask: mask24})
 		if route == nil {
 			res.Entries = append(res.Entries, &Entry{Family: netlink.FAMILY_V4, Address: e.Address, Metric: INF})
 		} else {
@@ -383,10 +425,9 @@ func (r *Rip) buildResponse(req *Packet) (*Packet, error) {
 }
 
 func (r *Rip) response(link netlink.Link, addr net.IP, packet *Packet) error {
-	r.logger.Info(r.dumpTable())
 	// if src port is not 520, ignore
 	// update neighbor information
-	a := &net.IPNet{IP: addr, Mask: addr.To4().DefaultMask()}
+	a := &net.IPNet{IP: addr, Mask: mask24}
 	_, cidr, err := net.ParseCIDR(a.String())
 	if err != nil {
 		return err
@@ -416,10 +457,10 @@ func (r *Rip) response(link netlink.Link, addr net.IP, packet *Packet) error {
 		if e.Family != addrFamilyIpv4 {
 			continue
 		}
-		route := r.lookupTable(&net.IPNet{IP: e.Address, Mask: e.Address.To4().DefaultMask()})
+		route := r.lookupTable(&net.IPNet{IP: e.Address, Mask: mask24})
 		if route == nil {
 			// route is not exist
-			if err := r.commit(link, &net.IPNet{IP: e.Address, Mask: e.Address.To4().DefaultMask()}, addr, e.Metric+1, false); err != nil {
+			if err := r.commit(link, &net.IPNet{IP: e.Address, Mask: mask24}, addr, e.Metric+1, false); err != nil {
 				return err
 			}
 		} else {
@@ -454,7 +495,6 @@ func (r *Rip) response(link netlink.Link, addr net.IP, packet *Packet) error {
 						return err
 					}
 				}
-
 			}
 		}
 	}
@@ -463,10 +503,10 @@ func (r *Rip) response(link netlink.Link, addr net.IP, packet *Packet) error {
 
 func (r *Rip) rxtxLoopLink(ctx context.Context, index int) error {
 	host := &net.UDPAddr{
-		IP:   r.addrs[index].Broadcast,
+		IP:   r.addrs[index].broadcast,
 		Port: r.port,
 	}
-	r.logger.Info("RIP Rx routine start... %s:%d\n", r.addrs[index].Broadcast, r.port)
+	r.logger.Info("RIP Rx routine start... %s %s:%d", r.links[index].Attrs().Name, r.addrs[index].broadcast, r.port)
 	listener, err := net.ListenUDP("udp", host)
 	if err != nil {
 		return err
@@ -497,7 +537,15 @@ func (r *Rip) gc() error {
 			if err != nil {
 				return err
 			}
-			if err := rib.Delete4(link, rr.dst, nil, nil); err != nil {
+			gw := rr.gateway.String()
+			if _, err := r.routeManager.DeleteRoute(context.Background(), &pb.DeleteRouteRequest{
+				Route: &pb.Route{
+					Destination: rr.dst.String(),
+					Gw:          &gw,
+					Link:        link.Attrs().Name,
+					Protocol:    pb.Protocol(routeManager.RT_PROTO_RIP),
+				},
+			}); err != nil {
 				return err
 			}
 			continue
@@ -560,7 +608,7 @@ func (r *Rip) triggerUpdate() error {
 		return err
 	}
 	for _, addr := range r.addrs {
-		r.tx <- message{addr: addr.Broadcast, port: PORT, data: data}
+		r.tx <- message{addr: addr.broadcast, port: PORT, data: data}
 	}
 	return nil
 }
@@ -580,6 +628,7 @@ func (r *Rip) allRoutes() []*route {
 
 func (r *Rip) commit(link netlink.Link, dst *net.IPNet, gateway net.IP, metric uint32, replace bool) error {
 	// update RIP routing database
+	r.logger.Info("commit: %s %s to %s metric=%d", dst.String(), gateway.String(), link.Attrs().Name, metric)
 	if replace {
 		route := r.lookupTable(dst)
 		if route == nil {
@@ -588,7 +637,23 @@ func (r *Rip) commit(link netlink.Link, dst *net.IPNet, gateway net.IP, metric u
 		route.gateway = gateway
 		route.metric = metric
 		route.state = ROUTE_STATE_UPDATED // set route update flag
-		return rib.Replace4(link, dst, gateway, rib.RT_PROTO_RIP)
+		gw := gateway.String()
+		if r.routeManager == nil {
+			r.logger.Warn("Route manager is not running")
+			return nil
+		}
+		if _, err := r.routeManager.SetRoute(context.Background(), &pb.SetRouteRequest{
+			Route: &pb.Route{
+				Destination:       dst.String(),
+				Gw:                &gw,
+				Link:              link.Attrs().Name,
+				Protocol:          pb.Protocol(routeManager.RT_PROTO_RIP),
+				BgpOriginExternal: false,
+			},
+		}); err != nil {
+			return err
+		}
+		return nil
 	}
 	r.table.mutex.Lock()
 	defer r.table.mutex.Unlock()
@@ -598,7 +663,23 @@ func (r *Rip) commit(link netlink.Link, dst *net.IPNet, gateway net.IP, metric u
 		out:     uint(link.Attrs().Index),
 		metric:  uint32(metric),
 	})
-	return rib.Add4(link, dst, gateway, rib.RT_PROTO_RIP)
+	if r.routeManager == nil {
+		r.logger.Warn("Route manager is not running")
+		return nil
+	}
+	gw := gateway.String()
+	if _, err := r.routeManager.SetRoute(context.Background(), &pb.SetRouteRequest{
+		Route: &pb.Route{
+			Destination:       dst.String(),
+			Gw:                &gw,
+			Link:              link.Attrs().Name,
+			Protocol:          pb.Protocol(routeManager.RT_PROTO_RIP),
+			BgpOriginExternal: false,
+		},
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Rip) lookupTable(dst *net.IPNet) *route {
@@ -647,5 +728,73 @@ func (cmd RipCommand) String() string {
 		return "Response"
 	default:
 		return "Unknown"
+	}
+}
+
+func linkFromNetwork(network string) (netlink.Link, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	for _, iface := range interfaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return nil, err
+		}
+		for _, addr := range addrs {
+			switch v := addr.(type) {
+			case *net.IPNet:
+				_, target, err := net.ParseCIDR(network)
+				if err != nil {
+					return nil, err
+				}
+				fmt.Printf("target=%s v.IP=%s\n", target.String(), v.IP.String())
+				if target.Contains(v.IP) {
+					return netlink.LinkByIndex(iface.Index)
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("interface that has %s is not found", network)
+}
+
+func newTable() *table {
+	return &table{
+		routes: make([]*route, 0),
+		mutex:  sync.Mutex{},
+	}
+}
+
+func (t *table) addLocalRoute(network *net.IPNet, link netlink.Link, addr net.IP) error {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	t.routes = append(t.routes, &route{
+		dst:     network,
+		metric:  1,
+		out:     uint(link.Attrs().Index),
+		gateway: addr,
+	})
+	return nil
+}
+
+func broadcast(cidr *net.IPNet) net.IP {
+	addr := cidr.IP.To4()
+	mask := cidr.Mask
+	broadcast := net.IPv4(0x00, 0x00, 0x00, 0x00)
+	for i := 0; i < 4; i++ {
+		broadcast[i+12] = (addr[i] & mask[i]) | ^mask[i]
+	}
+	return broadcast
+}
+
+func (ba *broadcastAddress) network() *net.IPNet {
+	mask := net.IPv4Mask(0x00, 0x00, 0x00, 0x00)
+	for i := 0; i < 4; i++ {
+		mask[i] = ba.addr[i] ^ ba.broadcast[i]
+	}
+	return &net.IPNet{
+		IP:   ba.addr,
+		Mask: mask,
 	}
 }

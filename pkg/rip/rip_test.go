@@ -42,3 +42,45 @@ func TestPacketDecode(t *testing.T) {
 		assert.Equal(t, d.data, data)
 	}
 }
+
+func TestBroadcast(t *testing.T) {
+	tests := []struct {
+		name string
+		cidr *net.IPNet
+		b    net.IP
+	}{
+		{
+			name: "CASE 1",
+			cidr: &net.IPNet{
+				IP:   net.ParseIP("10.0.0.0"),
+				Mask: net.IPv4Mask(0xff, 0xff, 0xff, 0x00),
+			},
+			b: net.ParseIP("10.0.0.255"),
+		},
+		{
+			name: "CASE 2",
+			cidr: &net.IPNet{
+				IP:   net.ParseIP("10.1.0.0"),
+				Mask: net.IPv4Mask(0xff, 0xff, 0xff, 0x00),
+			},
+			b: net.ParseIP("10.1.0.255"),
+		},
+		{
+			name: "CASE 3",
+			cidr: &net.IPNet{
+				IP:   net.ParseIP("10.10.10.0"),
+				Mask: net.IPv4Mask(0xff, 0xff, 0xff, 0x00),
+			},
+			b: net.ParseIP("10.10.10.255"),
+		},
+	}
+	t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := broadcast(tt.cidr)
+			t.Log(tt.b)
+			t.Log(b)
+			assert.Equal(t, tt.b, b)
+		})
+	}
+}

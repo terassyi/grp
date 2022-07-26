@@ -34,18 +34,19 @@ var bgpCmd = &cobra.Command{
 			if err := server.Run(context.Background()); err != nil {
 				log.Fatal(err)
 			}
+			return
 		}
 		conf, err := config.Load(file)
 		if err != nil {
 			log.Fatal(err)
 		}
 		if level != 0 {
-			conf.Level = level
+			conf.Bgp.Log.Level = level
 		}
 		if out != "" {
-			conf.Out = out
+			conf.Bgp.Log.Out = out
 		}
-		server, err := bgp.NewServerWithConfig(conf.Bgp, conf.Level, conf.Out)
+		server, err := bgp.NewServerWithConfig(conf.Bgp, conf.Bgp.Log.Level, conf.Bgp.Log.Out)
 		if err != nil {
 			log.Fatal(err)
 		}

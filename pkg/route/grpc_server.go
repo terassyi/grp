@@ -18,7 +18,7 @@ import (
 
 const (
 	logPath                 = "/var/log/grp/route"
-	DefaultRouteMangerPort  = 6789
+	DefaultRouteManagerPort = 6789
 	DefaultRouteManagerHost = "localhost"
 )
 
@@ -100,7 +100,7 @@ func (r *RouteManger) SetRoute(ctx context.Context, in *pb.SetRouteRequest) (*em
 		r.routes[route.Dst.String()] = route
 		return &emptypb.Empty{}, nil
 	}
-	if route.Ad < existingRoute.Ad {
+	if route.Ad <= existingRoute.Ad {
 		r.logger.Info("replace: %s", route)
 		if err := route.replace(); err != nil {
 			r.logger.Err("%s", err)
@@ -110,16 +110,35 @@ func (r *RouteManger) SetRoute(ctx context.Context, in *pb.SetRouteRequest) (*em
 	return &emptypb.Empty{}, nil
 }
 
-func RouteManagerHealthCheck() bool {
-	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", DefaultRouteManagerHost, DefaultRouteMangerPort), grpc.WithInsecure())
+func (r *RouteManger) DeleteRoute(ctx context.Context, in *pb.DeleteRouteRequest) (*emptypb.Empty, error) {
+	r.logger.Info("delete route request %s", in.Route.Destination)
+	route, err := RouteFromReq(in.Route)
 	if err != nil {
-		fmt.Println(err)
+		return nil, status.Error(codes.InvalidArgument, "failed to parse request to route")
+	}
+	targetRoute, ok := r.routes[route.Dst.String()]
+	if !ok {
+		r.logger.Warn("deletion target doesn't exist")
+		return &emptypb.Empty{}, nil
+	}
+	if targetRoute.Ad == ADConnected {
+		return &emptypb.Empty{}, nil
+	}
+	if err := targetRoute.delete(); err != nil {
+		return nil, status.Error(codes.Aborted, err.Error())
+	}
+	delete(r.routes, targetRoute.Dst.String())
+	return &emptypb.Empty{}, nil
+}
+
+func RouteManagerHealthCheck() bool {
+	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", DefaultRouteManagerHost, DefaultRouteManagerPort), grpc.WithInsecure())
+	if err != nil {
 		return false
 	}
 	defer conn.Close()
 	client := pb.NewRouteApiClient(conn)
 	if _, err := client.Health(context.Background(), &pb.HealthRequest{}); err != nil {
-		fmt.Println(err)
 		return false
 	}
 	return true

@@ -65,6 +65,10 @@ func (r *Route) replace() error {
 	return replace4(link, r.Dst, r.Gw, r.Protocol)
 }
 
+func (r *Route) delete() error {
+	return delete4(r.Dst, r.Src, r.Gw)
+}
+
 func (r Route) String() string {
 	var d, s, g string
 	if r.Gw != nil {
@@ -128,7 +132,7 @@ func add4(link netlink.Link, dst *net.IPNet, gateway net.IP, proto int) error {
 	return nil
 }
 
-func delete4(link netlink.Link, dst *net.IPNet, src net.IP, gateway net.IP) error {
+func delete4(dst *net.IPNet, src net.IP, gateway net.IP) error {
 	handler, err := netlink.NewHandle(netlink.FAMILY_V4)
 	if err != nil {
 		return err
@@ -137,13 +141,6 @@ func delete4(link netlink.Link, dst *net.IPNet, src net.IP, gateway net.IP) erro
 		Dst: dst,
 		Gw:  gateway,
 		Src: src,
-	}
-	linkAddrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
-	if err != nil {
-		return err
-	}
-	if dst.Contains(linkAddrs[0].IP) {
-		target.Scope = netlink.SCOPE_LINK
 	}
 	return handler.RouteDel(target)
 }

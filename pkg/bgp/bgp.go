@@ -78,7 +78,7 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 		peers:                make(map[string]*peer),
 		locRib:               NewLocRib(),
 		adjRibIn:             newAdjRibIn(),
-		routeManagerEndpoint: fmt.Sprintf("%s:%d", route.DefaultRouteManagerHost, route.DefaultRouteMangerPort),
+		routeManagerEndpoint: fmt.Sprintf("%s:%d", route.DefaultRouteManagerHost, route.DefaultRouteManagerPort),
 		logger:               logger,
 		requestQueue:         make(chan *Request, 16),
 		signalCh:             sigCh,

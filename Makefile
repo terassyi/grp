@@ -31,6 +31,8 @@ protogen:
 	protoc -Ipb --go-grpc_out=module=$(PROJECT)/pb:pb bgp.proto
 	protoc -Ipb --go_out=module=$(PROJECT)/pb:pb route.proto
 	protoc -Ipb --go-grpc_out=module=$(PROJECT)/pb:pb route.proto
+	protoc -Ipb --go_out=module=$(PROJECT)/pb:pb rip.proto
+	protoc -Ipb --go-grpc_out=module=$(PROJECT)/pb:pb rip.proto
 
 .PHONY: up
 up:

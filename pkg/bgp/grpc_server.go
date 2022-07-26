@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/terassyi/grp/pb"
+	"github.com/terassyi/grp/pkg/constants"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -42,12 +44,12 @@ func (s *server) Health(ctx context.Context, in *pb.HealthRequest) (*emptypb.Emp
 func (s *server) GetLogPath(ctx context.Context, in *pb.GetLogPathRequest) (*pb.GetLogPathResponse, error) {
 	return &pb.GetLogPathResponse{
 		Level: int32(s.bgp.logger.Level()),
-		Path: s.bgp.logger.Path(),
+		Path:  s.bgp.logger.Path(),
 	}, nil
 }
 
-func (s *server) Show(ctx context.Context, in *pb.ShowRequest) (*pb.ShowResponse, error) {
-	return &pb.ShowResponse{
+func (s *server) Show(ctx context.Context, in *pb.BgpShowRequest) (*pb.BgpShowResponse, error) {
+	return &pb.BgpShowResponse{
 		As:       int32(s.bgp.as),
 		Port:     int32(s.bgp.port),
 		RouterId: s.bgp.routerId.String(),
@@ -164,4 +166,17 @@ func (s *server) Network(ctx context.Context, in *pb.NetworkRequest) (*emptypb.E
 		req:  in,
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func HealthCheck() bool {
+	conn, err := grpc.Dial(fmt.Sprintf("localhost:%d", constants.ServiceApiServerMap["bgp"]), grpc.WithInsecure())
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	client := pb.NewBgpApiClient(conn)
+	if _, err := client.Health(context.Background(), &pb.HealthRequest{}); err != nil {
+		return false
+	}
+	return true
 }

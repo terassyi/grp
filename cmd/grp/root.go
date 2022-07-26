@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/terassyi/grp/cmd/grp/bgp"
+	"github.com/terassyi/grp/cmd/grp/rip"
 )
 
 var rootCmd = &cobra.Command{
@@ -16,27 +18,10 @@ func init() {
 	// list command
 	rootCmd.AddCommand(listCmd)
 
-	// bgp command
-	// neighbor sub command
-	getNeighborSubCmd.Flags().IntP("as", "a", 0, "AS Number of the neighbor")
-	getNeighborSubCmd.Flags().StringP("routerid", "r", "", "AS Number of the neighbor")
-	getNeighborSubCmd.Flags().StringP("address", "d", "", "Peer IP Address")
-	neighborSubCmd.AddCommand(
-		getNeighborSubCmd,
-		listNeighborSubCmd,
-		remoteASSubCmd,
+	rootCmd.AddCommand(
+		rip.RipCmd,
+		bgp.BgpCmd,
 	)
-	logSubCmd.Flags().BoolP("follow", "f", false, "follow logs")
-	logSubCmd.Flags().BoolP("plain-text", "p", false, "plain text format")
-	bgpCmd.AddCommand(
-		logSubCmd,
-		healthSubCmd,
-		showSubCmd,
-		neighborSubCmd,
-		routerIdSubCmd,
-		networkSubCmd,
-	)
-	rootCmd.AddCommand(bgpCmd)
 }
 
 func Execute() {

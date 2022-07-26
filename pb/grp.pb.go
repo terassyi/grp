@@ -58,14 +58,162 @@ func (*HealthRequest) Descriptor() ([]byte, []int) {
 	return file_grp_proto_rawDescGZIP(), []int{0}
 }
 
+type GetLogPathRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+}
+
+func (x *GetLogPathRequest) Reset() {
+	*x = GetLogPathRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_grp_proto_msgTypes[1]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *GetLogPathRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetLogPathRequest) ProtoMessage() {}
+
+func (x *GetLogPathRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_grp_proto_msgTypes[1]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetLogPathRequest.ProtoReflect.Descriptor instead.
+func (*GetLogPathRequest) Descriptor() ([]byte, []int) {
+	return file_grp_proto_rawDescGZIP(), []int{1}
+}
+
+type GetLogPathResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Level int32  `protobuf:"varint,1,opt,name=level,proto3" json:"level,omitempty"`
+	Path  string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+}
+
+func (x *GetLogPathResponse) Reset() {
+	*x = GetLogPathResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_grp_proto_msgTypes[2]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *GetLogPathResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetLogPathResponse) ProtoMessage() {}
+
+func (x *GetLogPathResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_grp_proto_msgTypes[2]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetLogPathResponse.ProtoReflect.Descriptor instead.
+func (*GetLogPathResponse) Descriptor() ([]byte, []int) {
+	return file_grp_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GetLogPathResponse) GetLevel() int32 {
+	if x != nil {
+		return x.Level
+	}
+	return 0
+}
+
+func (x *GetLogPathResponse) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type NetworkRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Networks []string `protobuf:"bytes,1,rep,name=networks,proto3" json:"networks,omitempty"`
+}
+
+func (x *NetworkRequest) Reset() {
+	*x = NetworkRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_grp_proto_msgTypes[3]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *NetworkRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NetworkRequest) ProtoMessage() {}
+
+func (x *NetworkRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_grp_proto_msgTypes[3]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NetworkRequest.ProtoReflect.Descriptor instead.
+func (*NetworkRequest) Descriptor() ([]byte, []int) {
+	return file_grp_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *NetworkRequest) GetNetworks() []string {
+	if x != nil {
+		return x.Networks
+	}
+	return nil
+}
+
 var File_grp_proto protoreflect.FileDescriptor
 
 var file_grp_proto_rawDesc = []byte{
 	0x0a, 0x09, 0x67, 0x72, 0x70, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x03, 0x67, 0x72, 0x70,
 	0x22, 0x0f, 0x0a, 0x0d, 0x48, 0x65, 0x61, 0x6c, 0x74, 0x68, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
-	0x74, 0x42, 0x1c, 0x5a, 0x1a, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f,
-	0x74, 0x65, 0x72, 0x61, 0x73, 0x73, 0x79, 0x69, 0x2f, 0x67, 0x72, 0x70, 0x2f, 0x70, 0x62, 0x62,
-	0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x74, 0x22, 0x13, 0x0a, 0x11, 0x47, 0x65, 0x74, 0x4c, 0x6f, 0x67, 0x50, 0x61, 0x74, 0x68, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x22, 0x3e, 0x0a, 0x12, 0x47, 0x65, 0x74, 0x4c, 0x6f, 0x67,
+	0x50, 0x61, 0x74, 0x68, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x14, 0x0a, 0x05,
+	0x6c, 0x65, 0x76, 0x65, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28, 0x05, 0x52, 0x05, 0x6c, 0x65, 0x76,
+	0x65, 0x6c, 0x12, 0x12, 0x0a, 0x04, 0x70, 0x61, 0x74, 0x68, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09,
+	0x52, 0x04, 0x70, 0x61, 0x74, 0x68, 0x22, 0x2c, 0x0a, 0x0e, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72,
+	0x6b, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x1a, 0x0a, 0x08, 0x6e, 0x65, 0x74, 0x77,
+	0x6f, 0x72, 0x6b, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x09, 0x52, 0x08, 0x6e, 0x65, 0x74, 0x77,
+	0x6f, 0x72, 0x6b, 0x73, 0x42, 0x1c, 0x5a, 0x1a, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63,
+	0x6f, 0x6d, 0x2f, 0x74, 0x65, 0x72, 0x61, 0x73, 0x73, 0x79, 0x69, 0x2f, 0x67, 0x72, 0x70, 0x2f,
+	0x70, 0x62, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -80,9 +228,12 @@ func file_grp_proto_rawDescGZIP() []byte {
 	return file_grp_proto_rawDescData
 }
 
-var file_grp_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_grp_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_grp_proto_goTypes = []interface{}{
-	(*HealthRequest)(nil), // 0: grp.HealthRequest
+	(*HealthRequest)(nil),      // 0: grp.HealthRequest
+	(*GetLogPathRequest)(nil),  // 1: grp.GetLogPathRequest
+	(*GetLogPathResponse)(nil), // 2: grp.GetLogPathResponse
+	(*NetworkRequest)(nil),     // 3: grp.NetworkRequest
 }
 var file_grp_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -110,6 +261,42 @@ func file_grp_proto_init() {
 				return nil
 			}
 		}
+		file_grp_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*GetLogPathRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_grp_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*GetLogPathResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_grp_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*NetworkRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -117,7 +304,7 @@ func file_grp_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_grp_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -5,3 +5,14 @@ package grp;
 option go_package = "github.com/terassyi/grp/pb";
 
 message HealthRequest {}
+
+message GetLogPathRequest {}
+
+message GetLogPathResponse {
+	int32 level = 1;
+	string path = 2;
+}
+
+message NetworkRequest {
+	repeated string networks = 1;
+}

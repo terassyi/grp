@@ -8,19 +8,23 @@ import (
 	"path/filepath"
 
 	"github.com/terassyi/grp/pkg/bgp"
+	"github.com/terassyi/grp/pkg/log"
+	"github.com/terassyi/grp/pkg/rip"
 	"github.com/terassyi/grp/pkg/route"
 	"gopkg.in/yaml.v3"
 )
 
-type Config struct {
-	*Log `json:"log,omitempty" yaml:"log,omitempty"`
-	RouteManager *route.Config `json:"routeManager,omitempty" yaml:"routeManager,omitempty"`
-	Bgp  *bgp.Config `json:"bgp,omitempty" yaml:"bgp,omitempty"`
-}
+const (
+	defaultBgpLogPath       string = "/var/log/grp/bgp"
+	defaultRipLogPath       string = "/var/log/grp/rip"
+	defaultRouteManagerPath string = "/var/log/grp/route"
+)
 
-type Log struct {
-	Level int    `json:"level" yaml:"level"`
-	Out   string `json:"out,omitempty" yaml:"out,omitempty"`
+type Config struct {
+	Log          *log.Log      `json:"log,omitempty" yaml:"log,omitempty"`
+	RouteManager *route.Config `json:"routeManager,omitempty" yaml:"routeManager,omitempty"`
+	Bgp          *bgp.Config   `json:"bgp,omitempty" yaml:"bgp,omitempty"`
+	Rip          *rip.Config   `json:"rip,omitempty" yaml:"rip,omitempty"`
 }
 
 func loadConfig(data []byte, ext string) (*Config, error) {
@@ -58,14 +62,20 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	proto := ""
 	if conf.Bgp != nil {
-		proto = "bgp"
+		if conf.Bgp.Log == nil {
+			conf.Bgp.Log = &log.Log{
+				Level: 1,
+				Out:   defaultBgpLogPath,
+			}
+		}
 	}
-	if conf.Log == nil {
-		conf.Log = &Log{
-			Level: 1,
-			Out:   fmt.Sprintf("/var/log/grp/%s", proto),
+	if conf.Rip != nil {
+		if conf.Rip.Log == nil {
+			conf.Rip.Log = &log.Log{
+				Level: 1,
+				Out:   defaultRipLogPath,
+			}
 		}
 	}
 	return conf, nil
