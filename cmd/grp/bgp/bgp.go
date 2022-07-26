@@ -1,4 +1,4 @@
-package main
+package bgp
 
 import (
 	"context"
@@ -15,12 +15,13 @@ import (
 	"github.com/hpcloud/tail"
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/pb"
+	"github.com/terassyi/grp/pkg/bgp"
 	"github.com/terassyi/grp/pkg/constants"
 	grpLog "github.com/terassyi/grp/pkg/log"
 	"google.golang.org/grpc"
 )
 
-var bgpCmd = &cobra.Command{
+var BgpCmd = &cobra.Command{
 	Use:   "bgp",
 	Short: "GRP BGP operating cli",
 	Args:  cobra.MinimumNArgs(1),
@@ -37,6 +38,30 @@ var bgpCmd = &cobra.Command{
 			os.Exit(1)
 		}
 	},
+}
+
+func init() {
+	// lgos
+	logSubCmd.Flags().BoolP("follow", "f", false, "follow logs")
+	logSubCmd.Flags().BoolP("plain-text", "p", false, "plain text format")
+	// neighbor
+	getNeighborSubCmd.Flags().IntP("as", "a", 0, "AS Number of the neighbor")
+	getNeighborSubCmd.Flags().StringP("routerid", "r", "", "AS Number of the neighbor")
+	getNeighborSubCmd.Flags().StringP("address", "d", "", "Peer IP Address")
+	neighborSubCmd.AddCommand(
+		getNeighborSubCmd,
+		listNeighborSubCmd,
+		remoteASSubCmd,
+	)
+
+	BgpCmd.AddCommand(
+		healthSubCmd,
+		logSubCmd,
+		showSubCmd,
+		neighborSubCmd,
+		routerIdSubCmd,
+		networkSubCmd,
+	)
 }
 
 type bgpClient struct {
@@ -59,7 +84,7 @@ var healthSubCmd = &cobra.Command{
 	Use:   "health",
 	Short: "health check",
 	Run: func(cmd *cobra.Command, args []string) {
-		if bgpHealthCheck() {
+		if bgp.HealthCheck() {
 			fmt.Println("bgpd is healthy")
 		} else {
 			fmt.Println("bgpd is unhealthy")
@@ -67,14 +92,6 @@ var healthSubCmd = &cobra.Command{
 	},
 }
 
-func bgpHealthCheck() bool {
-	bc := newBgpClient()
-	defer bc.conn.Close()
-	if _, err := bc.Health(context.Background(), &pb.HealthRequest{}); err != nil {
-		return false
-	}
-	return true
-}
 
 var showSubCmd = &cobra.Command{
 	Use:   "show",

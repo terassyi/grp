@@ -28,17 +28,18 @@ var mask24 net.IPMask = net.IPv4Mask(0xff, 0xff, 0xff, 0x00)
 // Routing Information Protocol
 // https://datatracker.ietf.org/doc/html/rfc1058
 type Rip struct {
-	links []netlink.Link
-	// addrs                []netlink.Addr
-	addrs                []*broadcastAddress
-	port                 int
-	rx                   chan message
-	tx                   chan message
-	timer                time.Ticker
-	gcTimer              time.Ticker
-	trigger              chan struct{}
-	timeout              uint64
-	gcTime               uint64
+	links   []netlink.Link
+	addrs   []*broadcastAddress
+	port    int
+	rx      chan message
+	tx      chan message
+	timer   time.Ticker
+	gcTimer time.Ticker
+	trigger chan struct{}
+	timeout uint64
+	gcTime  uint64
+
+	mutex                sync.RWMutex
 	table                *table
 	logger               log.Logger
 	routeManagerEndpoint string
@@ -777,4 +778,15 @@ func broadcast(cidr *net.IPNet) net.IP {
 		broadcast[i+12] = (addr[i] & mask[i]) | ^mask[i]
 	}
 	return broadcast
+}
+
+func (ba *broadcastAddress) network() *net.IPNet {
+	mask := net.IPv4Mask(0x00, 0x00, 0x00, 0x00)
+	for i := 0; i < 4; i++ {
+		mask[i] = ba.addr[i] ^ ba.broadcast[i]
+	}
+	return &net.IPNet{
+		IP:   ba.addr,
+		Mask: mask,
+	}
 }

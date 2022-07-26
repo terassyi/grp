@@ -14,6 +14,11 @@ const (
 	BASE_PATH string = "/var/log/grp"
 )
 
+type Log struct {
+	Level int    `json:"level" yaml:"level"`
+	Out   string `json:"out,omitempty" yaml:"out,omitempty"`
+}
+
 type Logger interface {
 	Info(string, ...any)
 	Warn(string, ...any)

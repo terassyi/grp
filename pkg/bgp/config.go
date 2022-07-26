@@ -4,16 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/terassyi/grp/pkg/log"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	AS        int        `json:"AS" yaml:"AS"`
-	RouterId  string     `json:"router-id" yaml:"router-id"`
-	Port      int        `json:"port,omitempty" yaml:"port,omitempty"`
-	Networks  []string   `json:"networks,omitempty" yaml:"networks,omitempty"`
-	Neighbors []Neighbor `json:"neighbors,omitempty" yaml:"neighbors,omitempty"`
-	RouteManagerEndpoint *string `json:"routeManagerEndpoint,omitempty" yaml:"routeManagerEndpoint,omitempty"`
+	Log                  *log.Log    `json:"log,omitempty" yaml:"log,omitempty"`
+	AS                   int        `json:"AS" yaml:"AS"`
+	RouterId             string     `json:"router-id" yaml:"router-id"`
+	Port                 int        `json:"port,omitempty" yaml:"port,omitempty"`
+	Networks             []string   `json:"networks,omitempty" yaml:"networks,omitempty"`
+	Neighbors            []Neighbor `json:"neighbors,omitempty" yaml:"neighbors,omitempty"`
+	RouteManagerEndpoint *string    `json:"routeManagerEndpoint,omitempty" yaml:"routeManagerEndpoint,omitempty"`
 }
 
 type Neighbor struct {

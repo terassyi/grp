@@ -20,7 +20,7 @@ message RipShowRequest {}
 message RipShowResponse {
 	int32 timeout = 1;
 	int32 gc = 2;
-	repeated string interface = 3;
+	repeated string network = 3;
 }
 
 message GetVersionRequest {}

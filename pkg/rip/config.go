@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/terassyi/grp/pkg/log"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
+	Log                  *log.Log  `json:"log,omitempty" yaml:"log,omitempty"`
 	Networks             []string `json:"networks,omitempty" yaml:"networks,omitempty"`
 	Port                 int      `json:"port" "yaml:"port"`
 	Timeout              int      `json:"timeout" yaml:"timeout"`

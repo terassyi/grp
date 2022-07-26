@@ -93,17 +93,30 @@ func (s *server) GetLogPath(ctx context.Context, in *pb.GetLogPathRequest) (*pb.
 }
 
 func (s *server) Show(ctx context.Context, in *pb.RipShowRequest) (*pb.RipShowResponse, error) {
-	ifnames := make([]string, 0, len(s.rip.links))
-	for _, iface := range s.rip.links {
-		ifnames = append(ifnames, iface.Attrs().Name)
+	networks := make([]string, 0, len(s.rip.addrs))
+	for _, addr := range s.rip.addrs {
+		networks = append(networks, addr.network().String())
 	}
 	return &pb.RipShowResponse{
-		Timeout:   int32(s.rip.timeout),
-		Gc:        int32(s.rip.gcTime),
-		Interface: ifnames,
+		Timeout: int32(s.rip.timeout),
+		Gc:      int32(s.rip.gcTime),
+		Network: networks,
 	}, nil
 }
 
 func (s *server) Network(ctx context.Context, in *pb.NetworkRequest) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, nil
+}
+
+func HealthCheck() bool {
+	conn, err := grpc.Dial(fmt.Sprintf("localhost:%d", constants.ServiceApiServerMap["rip"]), grpc.WithInsecure())
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	client := pb.NewRouteApiClient(conn)
+	if _, err := client.Health(context.Background(), &pb.HealthRequest{}); err != nil {
+		return false
+	}
+	return true
 }

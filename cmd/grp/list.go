@@ -6,12 +6,15 @@ import (
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
+	"github.com/terassyi/grp/pkg/bgp"
 	"github.com/terassyi/grp/pkg/constants"
+	"github.com/terassyi/grp/pkg/rip"
 	"github.com/terassyi/grp/pkg/route"
 )
 
 var healthCheckMap = map[string]func() bool{
-	"bgp":           bgpHealthCheck,
+	"rip":           rip.HealthCheck,
+	"bgp":           bgp.HealthCheck,
 	"route-manager": route.RouteManagerHealthCheck,
 }
 

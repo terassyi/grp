@@ -72,12 +72,12 @@ var ripCmd = &cobra.Command{
 			config.Rip.Gc = int(gcTime)
 		}
 		if level != 0 {
-			config.Level = level
+			config.Rip.Log.Level = level
 		}
 		if out != "" {
-			config.Out = out
+			config.Rip.Log.Out = out
 		}
-		server, err := rip.NewServerWithConfig(config.Rip, config.Level, config.Out)
+		server, err := rip.NewServerWithConfig(config.Rip, config.Rip.Log.Level, config.Rip.Log.Out)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)

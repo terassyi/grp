@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/terassyi/grp/pb"
+	"github.com/terassyi/grp/pkg/constants"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -164,4 +166,17 @@ func (s *server) Network(ctx context.Context, in *pb.NetworkRequest) (*emptypb.E
 		req:  in,
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func HealthCheck() bool {
+	conn, err := grpc.Dial(fmt.Sprintf("localhost:%d", constants.ServiceApiServerMap["bgp"]), grpc.WithInsecure())
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	client := pb.NewBgpApiClient(conn)
+	if _, err := client.Health(context.Background(), &pb.HealthRequest{}); err != nil {
+		return false
+	}
+	return true
 }
