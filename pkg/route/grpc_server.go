@@ -149,16 +149,17 @@ func (r *RouteManger) ListRoute(ctx context.Context, in *pb.ListRouteRequest) (*
 	defer r.table.mutex.RUnlock()
 	for _, route := range r.table.routes {
 		gw := route.Gw.String()
+		src := route.Src.String()
 		link, err := netlink.LinkByIndex(route.LinkIndex)
 		if err != nil {
 			return nil, status.Error(codes.Aborted, err.Error())
 		}
 		pbRoutes = append(pbRoutes, &pb.Route{
-			Destination:       route.Dst.String(),
-			Src:               nil,
-			Gw:                &gw,
-			Link:              link.Attrs().Name,
-			Protocol:          pb.Protocol(route.Protocol),
+			Destination: route.Dst.String(),
+			Src:         &src,
+			Gw:          &gw,
+			Link:        link.Attrs().Name,
+			Protocol:    pb.Protocol(route.Protocol),
 		})
 	}
 	return &pb.ListRouteResponse{

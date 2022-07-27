@@ -26,6 +26,7 @@ var showSubCmd = &cobra.Command{
 	Use:   "show",
 	Short: "show routes in route-manager",
 	Run: func(cmd *cobra.Command, args []string) {
+		nilStr := "<nil>"
 		client, err := route.NewRouteManagerClient(fmt.Sprintf("%s:%d", route.DefaultRouteManagerHost, route.DefaultRouteManagerPort))
 		if err != nil {
 			fmt.Println(err)
@@ -37,14 +38,26 @@ var showSubCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"Destination", "Gateway", "Device", "Protocol"})
+		table.SetHeader([]string{"Destination", "Gateway", "Source", "Device", "Protocol"})
 		fmt.Println("GRP Routing Information Base ")
 		for _, route := range res.Route {
+			dst := ""
 			gw := ""
-			if route.Gw != nil {
+			src := ""
+
+			if *route.Gw != nilStr {
 				gw = *route.Gw
 			}
-			table.Append([]string{route.Destination, gw, route.Link, route.Protocol.String()})
+			if route.Destination == nilStr {
+				dst = "default"
+			} else {
+				dst = route.Destination
+			}
+			if *route.Src != nilStr {
+				src = *route.Src
+			}
+			fmt.Println(route.Gw)
+			table.Append([]string{dst, gw, src, route.Link, route.Protocol.String()})
 		}
 		table.Render()
 	},
