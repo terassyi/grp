@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/pkg/bgp"
 	"github.com/terassyi/grp/pkg/config"
+	grpLog "github.com/terassyi/grp/pkg/log"
 )
 
 var bgpCmd = &cobra.Command{
@@ -39,6 +40,12 @@ var bgpCmd = &cobra.Command{
 		conf, err := config.Load(file)
 		if err != nil {
 			log.Fatal(err)
+		}
+		if conf.Bgp.Log == nil {
+			conf.Bgp.Log = &grpLog.Log{
+				Level: 1,
+				Out:   "/var/log/grp/bgp",
+			}
 		}
 		if level != 0 {
 			conf.Bgp.Log.Level = level
