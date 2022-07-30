@@ -11,6 +11,7 @@ service RouteApi {
 	rpc Health(grp.HealthRequest) returns (google.protobuf.Empty);
 	rpc SetRoute(SetRouteRequest) returns (google.protobuf.Empty);
 	rpc DeleteRoute(DeleteRouteRequest) returns (google.protobuf.Empty);
+	rpc ListRoute(ListRouteRequest) returns (ListRouteResponse);
 }
 
 enum AdministrativeDistance {
@@ -49,4 +50,10 @@ message SetRouteRequest {
 
 message DeleteRouteRequest {
 	Route route = 1;
+}
+
+message ListRouteRequest {}
+
+message ListRouteResponse {
+	repeated Route route = 1;
 }

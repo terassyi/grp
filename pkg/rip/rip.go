@@ -138,7 +138,6 @@ func New(networks []string, port int, timeout, gcTime uint64, logLevel int, logO
 		}
 		var b *broadcastAddress
 		for _, a := range addrss {
-			fmt.Println(a.Broadcast.String())
 			if cidr.Contains(a.IP) {
 				b = &broadcastAddress{
 					addr:      a.IP,
@@ -186,7 +185,6 @@ func FromConfig(config *Config, logLevel int, logOut string) (*Rip, error) {
 	port := PORT
 	timeout := DEFALUT_TIMEOUT
 	gc := DEFALUT_GC_TIME
-	fmt.Println(config.Networks)
 	if config.Port != 0 {
 		port = config.Port
 	}
@@ -748,7 +746,6 @@ func linkFromNetwork(network string) (netlink.Link, error) {
 				if err != nil {
 					return nil, err
 				}
-				fmt.Printf("target=%s v.IP=%s\n", target.String(), v.IP.String())
 				if target.Contains(v.IP) {
 					return netlink.LinkByIndex(iface.Index)
 				}

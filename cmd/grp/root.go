@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/cmd/grp/bgp"
 	"github.com/terassyi/grp/cmd/grp/rip"
+	"github.com/terassyi/grp/cmd/grp/route"
 )
 
 var rootCmd = &cobra.Command{
@@ -21,6 +22,7 @@ func init() {
 	rootCmd.AddCommand(
 		rip.RipCmd,
 		bgp.BgpCmd,
+		route.RouteCmd,
 	)
 }
 
