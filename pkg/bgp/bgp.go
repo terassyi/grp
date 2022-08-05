@@ -21,8 +21,13 @@ import (
 // https://www.rfc-editor.org/rfc/pdfrfc/rfc1771.txt.pdf
 
 const (
-	PORT    int = 179
-	VERSION int = 4
+	PORT            int = 179
+	VERSION         int = 4
+	AS_TRANS        int = 23456
+	ASN_GLOBAL_MIN  int = 1
+	ASN_GLOBAL_MAX  int = 64511
+	ASN_PRIVATE_MIN int = 64512
+	ASN_PRIVATE_MAX int = 65535
 )
 
 type Bgp struct {
@@ -99,7 +104,9 @@ func FromConfig(conf *Config, logLevel int, logOut string) (*Bgp, error) {
 	if conf.AS == 0 {
 		return nil, ErrASNumberIsRequired
 	}
-	b.setAS(conf.AS)
+	if err := b.setAS(conf.AS); err != nil {
+		return nil, err
+	}
 	if conf.RouterId != "" {
 		b.setRouterId(conf.RouterId)
 	}
@@ -122,6 +129,12 @@ func FromConfig(conf *Config, logLevel int, logOut string) (*Bgp, error) {
 func (b *Bgp) setAS(as int) error {
 	if b.as != 0 {
 		return ErrASNumberIsAlreadySet
+	}
+	if as > ASN_PRIVATE_MAX {
+		return fmt.Errorf("AS number is over %d(4 bytes AS number is not supported)", ASN_PRIVATE_MAX)
+	}
+	if as > ASN_GLOBAL_MIN && as < ASN_GLOBAL_MAX {
+		b.logger.Warn("specified AS number is global")
 	}
 	b.as = as
 	b.logger.Info("AS Number: %d", as)
@@ -189,7 +202,6 @@ func (b *Bgp) poll(ctx context.Context) error {
 }
 
 func (b *Bgp) requestHandle(ctx context.Context, req *Request) error {
-	b.logger.Info("Receive request: %v\n", req)
 	switch req.code {
 	case requestSetAS:
 		body := req.req.(*pb.SetASRequest)
@@ -291,7 +303,6 @@ func (b *Bgp) pollRib(ctx context.Context) {
 }
 
 func (b *Bgp) originateRoutes(networks []string) error {
-	b.logger.Info("Originate local routes: %v", networks)
 	for _, network := range networks {
 		path, err := CreateLocalPath(network, b.id, b.as)
 		if err != nil {

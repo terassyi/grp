@@ -7,13 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/terassyi/grp/pb"
 	"github.com/terassyi/grp/pkg/log"
-	"github.com/terassyi/grp/pkg/rib"
 	routeManager "github.com/terassyi/grp/pkg/route"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netlink/nl"
@@ -689,23 +687,6 @@ func (r *Rip) lookupTable(dst *net.IPNet) *route {
 		}
 	}
 	return nil
-}
-
-func (r *Rip) findRibRoutes(dst netip.Addr) ([]*rib.Route, error) {
-	routes := make([]*rib.Route, 0)
-	for _, link := range r.links {
-		rs, err := rib.Get4(link, net.IP(dst.AsSlice()))
-		if err != nil {
-			return nil, err
-		}
-		for _, r := range rs {
-			routes = append(routes, &rib.Route{Link: link, Route: &r})
-		}
-	}
-	if len(routes) == 0 {
-		return nil, nil
-	}
-	return routes, nil
 }
 
 func (r *Rip) dumpTable() string {

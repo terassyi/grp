@@ -92,7 +92,6 @@ var healthSubCmd = &cobra.Command{
 	},
 }
 
-
 var showSubCmd = &cobra.Command{
 	Use:   "show",
 	Short: "show bgp server information",
@@ -285,7 +284,6 @@ var logSubCmd = &cobra.Command{
 		}
 		fmt.Printf("BGP Logs Output %s with level %s\n\n", res.Path, grpLog.Level(res.Level))
 		t, err := tail.TailFile(res.Path, tail.Config{
-			ReOpen: true,
 			Poll:   true,
 			Follow: follow,
 		})

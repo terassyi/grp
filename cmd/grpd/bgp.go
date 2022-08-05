@@ -28,7 +28,15 @@ var bgpCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 		if file == "" {
-			server, err := bgp.NewServer(level, out)
+			logLevel := 1
+			logOut := grpLog.BGP_PATH
+			if level != -1 {
+				logLevel = level
+			}
+			if out != "" {
+				logOut = out
+			}
+			server, err := bgp.NewServer(logLevel, logOut)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -44,7 +52,7 @@ var bgpCmd = &cobra.Command{
 		if conf.Bgp.Log == nil {
 			conf.Bgp.Log = &grpLog.Log{
 				Level: 1,
-				Out:   "/var/log/grp/bgp",
+				Out:   grpLog.BGP_PATH,
 			}
 		}
 		if level != 0 {

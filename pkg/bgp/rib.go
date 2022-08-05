@@ -5,9 +5,6 @@ import (
 	"net"
 	"reflect"
 	"sync"
-
-	"github.com/terassyi/grp/pkg/rib"
-	"github.com/vishvananda/netlink"
 )
 
 // Routes: Advertisement and Storage
@@ -189,7 +186,7 @@ func (r *AdjRibIn) Select(as int, path *Path, withdrawn bool, bestPathConfig *Be
 		return 0, nil, nil
 	}
 	if path.asPath.CheckLoop() {
-		return 0, nil, fmt.Errorf("AdjRibIn_Select: detect AS loop")
+		return 0, nil, fmt.Errorf("AdjRibIn_Select: detect AS loop %v for %s", path.asPath.GetSequence(), path.nlri)
 	}
 	// Insert into Adj-Rib-In
 	if err := r.Insert(path); err != nil {
@@ -282,22 +279,6 @@ func (l *LocRib) enqueue(pathes []*Path) {
 	l.queue <- pathes
 }
 
-func setupLocRib(family int) ([]netlink.Route, error) {
-	routes := make([]netlink.Route, 0)
-	interfaces, err := netlink.LinkList()
-	if err != nil {
-		return nil, fmt.Errorf("setupLocRib: failed to get interfaces: %w", err)
-	}
-	for _, iface := range interfaces {
-		rs, err := rib.LookUp4(iface)
-		if err != nil {
-			return nil, fmt.Errorf("setupLocRib: failed to get route in %s: %w", iface.Attrs().Name, err)
-		}
-		routes = append(routes, rs...)
-	}
-	return routes, nil
-}
-
 func (l *LocRib) Insert(path *Path) error {
 	l.mutex.Lock()
 	l.table[path.nlri.String()] = path
@@ -306,30 +287,7 @@ func (l *LocRib) Insert(path *Path) error {
 		// if the given path is originated by local, don't insert into route table
 		return nil
 	}
-	// routes, err := l.isntallToRib(path.link, path.nlri.Network(), path.nextHop)
-	// if err != nil {
-	// 	return fmt.Errorf("LocRib_InsertPath: %w", err)
-	// }
-	// path.routes = routes
-	// path.status = PathStatusInstalledIntoLocRib
 	return nil
-}
-
-func (l *LocRib) isntallToRib(link netlink.Link, cidr *net.IPNet, next net.IP) ([]netlink.Route, error) {
-	routes, err := rib.Get4(link, cidr.IP)
-	if err != nil {
-		return nil, fmt.Errorf("LocRib_installToRib: %w", err)
-	}
-	if len(routes) == 0 {
-		if err := rib.Add4(link, cidr, next, rib.RT_PROTO_BGP); err != nil {
-			return nil, fmt.Errorf("LocRib_installToRib: %w", err)
-		}
-	} else {
-		if err := rib.Replace4(link, cidr, next, rib.RT_PROTO_BGP); err != nil {
-			return nil, fmt.Errorf("LocRib_installToRib: %w", err)
-		}
-	}
-	return rib.Get4(link, cidr.IP)
 }
 
 func (l *LocRib) Get(network string) (*Path, bool) {

@@ -47,7 +47,15 @@ var ripCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		if file == "" {
-			server, err := rip.NewServer(level, out)
+			logLevel := 1
+			logOut := log.RIP_PATH
+			if level != -1 {
+				logLevel = level
+			}
+			if out != "" {
+				logOut = out
+			}
+			server, err := rip.NewServer(logLevel, logOut)
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
@@ -75,7 +83,7 @@ var ripCmd = &cobra.Command{
 		if conf.Rip.Log == nil {
 			conf.Rip.Log = &log.Log{
 				Level: 1,
-				Out:   "/var/log/grp/rip",
+				Out:   log.RIP_PATH,
 			}
 		}
 		if level != 0 {

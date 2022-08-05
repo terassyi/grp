@@ -11,7 +11,10 @@ import (
 )
 
 const (
-	BASE_PATH string = "/var/log/grp"
+	BASE_PATH          string = "/var/log/grp"
+	BGP_PATH           string = "/var/log/grp/bgp"
+	RIP_PATH           string = "/var/log/grp/rip"
+	ROUTE_MANAGER_PATH string = "/var/log/grp/route"
 )
 
 type Log struct {

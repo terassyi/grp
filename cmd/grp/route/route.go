@@ -39,7 +39,7 @@ var showSubCmd = &cobra.Command{
 		}
 		table := tablewriter.NewWriter(os.Stdout)
 		table.SetHeader([]string{"Destination", "Gateway", "Source", "Device", "Protocol"})
-		fmt.Println("GRP Routing Information Base ")
+		fmt.Println("  GRP Routing Information Base ")
 		for _, route := range res.Route {
 			dst := ""
 			gw := ""
@@ -56,7 +56,6 @@ var showSubCmd = &cobra.Command{
 			if *route.Src != nilStr {
 				src = *route.Src
 			}
-			fmt.Println(route.Gw)
 			table.Append([]string{dst, gw, src, route.Link, route.Protocol.String()})
 		}
 		table.Render()

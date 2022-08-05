@@ -19,11 +19,11 @@ func init() {
 	ripCmd.Flags().IntP("port", "p", 520, "RIP running port.")
 	ripCmd.Flags().Uint64P("timeout", "t", rip.DEFALUT_TIMEOUT, "RIP timeout time.")
 	ripCmd.Flags().Uint64P("gc", "g", rip.DEFALUT_GC_TIME, "RIP gc time.")
-	ripCmd.Flags().IntP("log", "l", 0, "log level")
+	ripCmd.Flags().IntP("log", "l", -1, "log level")
 	ripCmd.Flags().StringP("log-path", "o", "", "log output path")
 
 	// bgp
-	bgpCmd.Flags().IntP("log", "l", 0, "log level")
+	bgpCmd.Flags().IntP("log", "l", -1, "log level")
 	bgpCmd.Flags().StringP("log-path", "o", "", "log output path")
 	bgpCmd.Flags().StringP("config", "c", "", "configuration file path")
 
