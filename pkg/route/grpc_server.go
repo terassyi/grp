@@ -136,6 +136,9 @@ func (r *RouteManger) DeleteRoute(ctx context.Context, in *pb.DeleteRouteRequest
 	if targetRoute.Ad == ADConnected {
 		return &emptypb.Empty{}, nil
 	}
+	if targetRoute.Ad != AdFromProto(route.Protocol, in.Route.BgpOriginExternal) {
+		return nil, status.Error(codes.Aborted, "protocol of a deleting route is not matched")
+	}
 	if err := targetRoute.delete(); err != nil {
 		return nil, status.Error(codes.Aborted, err.Error())
 	}

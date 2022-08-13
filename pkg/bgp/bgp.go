@@ -40,6 +40,7 @@ type Bgp struct {
 	routeManager         pb.RouteApiClient
 	routeManagerEndpoint string
 	requestQueue         chan *Request
+	propagateCh          chan Packet
 	config               *BgpConfig
 	logger               log.Logger
 	signalCh             chan os.Signal
@@ -86,6 +87,7 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 		routeManagerEndpoint: fmt.Sprintf("%s:%d", route.DefaultRouteManagerHost, route.DefaultRouteManagerPort),
 		logger:               logger,
 		requestQueue:         make(chan *Request, 16),
+		propagateCh:          make(chan Packet, 16),
 		signalCh:             sigCh,
 		id:                   rand.Int(),
 		config:               &BgpConfig{bestPathConfig: &BestPathConfig{}},
@@ -192,6 +194,11 @@ func (b *Bgp) poll(ctx context.Context) error {
 				if err := b.requestHandle(ctx, req); err != nil {
 					b.logger.Err("Request handler: %s", err)
 				}
+			case msg := <-b.propagateCh:
+				b.logger.Info("Propagete Request: %s", msg)
+				for _, p := range b.peers {
+					p.enqueueEvent(&propagateMsg{&msg}) // now, propagated message is only update withdrawn message in this path.
+				}
 			case <-ctx.Done():
 				return
 			}
@@ -258,7 +265,7 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 			return nil, err
 		}
 	}
-	p := newPeer(b.logger, link, local, addr, ri, myAS, peerAS, b.locRib, b.adjRibIn)
+	p := newPeer(b.logger, link, local, addr, ri, myAS, peerAS, b.locRib, b.adjRibIn, b.propagateCh)
 	if _, ok := b.peers[addr.String()]; ok && !force {
 		return nil, ErrPeerAlreadyRegistered
 	}
@@ -270,31 +277,61 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 func (b *Bgp) pollRib(ctx context.Context) {
 	for {
 		select {
-		case pathes := <-b.locRib.queue:
-			for _, path := range pathes {
-				if err := b.locRib.Insert(path); err != nil {
-					b.logger.Err("pollRib: %s", err)
-				}
-				if b.routeManager != nil {
-					src := path.nextHop.String()
-					if _, err := b.routeManager.SetRoute(ctx, &pb.SetRouteRequest{
-						Route: &pb.Route{
-							Destination:       path.nlri.String(),
-							Src:               nil,
-							Gw:                &src,
-							Link:              path.link.Attrs().Name,
-							Protocol:          pb.Protocol(route.RT_PROTO_BGP),
-							BgpOriginExternal: true,
-						},
-					}); err != nil {
+		case req := <-b.locRib.queue:
+			if req.withdraw {
+				for _, path := range req.pathes {
+					if err := b.locRib.Drop(path); err != nil {
 						b.logger.Err("pollRib: %s", err)
 					}
-				} else {
-					b.logger.Warn("Cannot insert to fib bacause of route manager not running")
+					if b.routeManager != nil {
+						src := path.nextHop.String()
+						if _, err := b.routeManager.DeleteRoute(ctx, &pb.DeleteRouteRequest{
+							Route: &pb.Route{
+								Destination:       path.nlri.String(),
+								Src:               nil,
+								Gw:                &src,
+								Link:              path.link.Attrs().Name,
+								Protocol:          pb.Protocol(route.RT_PROTO_BGP),
+								BgpOriginExternal: true,
+							},
+						}); err != nil {
+							b.logger.Err("pollRib: %s", err)
+						}
+					} else {
+						b.logger.Warn("Cannot insert to fib bacause of route manager not running")
+					}
 				}
-			}
-			for _, peer := range b.peers {
-				peer.enqueueEvent(&triggerDissemination{pathes: pathes, withdrawn: false})
+				for _, peer := range b.peers {
+					peer.enqueueEvent(&triggerDissemination{pathes: req.pathes, withdrawn: req.withdraw})
+				}
+
+			} else {
+				for _, path := range req.pathes {
+					if err := b.locRib.Insert(path); err != nil {
+						b.logger.Err("pollRib: %s", err)
+					}
+					if b.routeManager != nil {
+						src := path.nextHop.String()
+						if _, err := b.routeManager.SetRoute(ctx, &pb.SetRouteRequest{
+							Route: &pb.Route{
+								Destination:       path.nlri.String(),
+								Src:               nil,
+								Gw:                &src,
+								Link:              path.link.Attrs().Name,
+								Protocol:          pb.Protocol(route.RT_PROTO_BGP),
+								BgpOriginExternal: true,
+							},
+						}); err != nil {
+							b.logger.Err("pollRib: %s", err)
+						}
+					} else {
+						b.logger.Warn("Cannot insert to fib bacause of route manager not running")
+					}
+				}
+				for _, peer := range b.peers {
+					peer.enqueueEvent(&triggerDissemination{pathes: req.pathes, withdrawn: req.withdraw})
+				}
+
 			}
 		case <-ctx.Done():
 			return

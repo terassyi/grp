@@ -56,6 +56,39 @@ func (s *server) Show(ctx context.Context, in *pb.BgpShowRequest) (*pb.BgpShowRe
 	}, nil
 }
 
+func (s *server) ShowRoute(ctx context.Context, in *pb.BgpShowRouteRequest) (*pb.BgpShowRouteResponse, error) {
+	pathes := s.bgp.adjRibIn.GetAll()
+	routes := make([]*pb.BgpRoute, 0, len(pathes))
+	for _, p := range pathes {
+		var nexhop string
+		var reason string
+		if p.nextHop == nil || p.nextHop.Equal(net.ParseIP("0.0.0.0")) {
+			nexhop = "self"
+		} else {
+			nexhop = p.nextHop.String()
+		}
+		asPath := make([]int32, 0)
+		for _, a := range p.asPath.GetSequence() {
+			asPath = append(asPath, int32(a))
+		}
+		if p.best {
+			reason = p.reason.String()
+		} else {
+			reason = ""
+		}
+		routes = append(routes, &pb.BgpRoute{
+			Network:   p.nlri.String(),
+			Nexthop:   nexhop,
+			Metric:    0,
+			LocalPref: int32(p.localPref),
+			Path:      asPath,
+			Best:      p.best,
+			Reason:    reason,
+		})
+	}
+	return &pb.BgpShowRouteResponse{Routes: routes}, nil
+}
+
 func (s *server) GetNeighbor(ctx context.Context, in *pb.GetNeighborRequest) (*pb.GetNeighborResponse, error) {
 	var peer *peer
 	if in.As != 0 {

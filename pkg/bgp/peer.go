@@ -114,31 +114,36 @@ import (
 //          ---------------------------------------------------------------
 
 type peer struct {
-	mutex sync.RWMutex
 	*peerInfo
-	locRib         *LocRib // reference of bgp.rib. This field is called by every peers. When handling this, we must get lock.
-	rib            *AdjRib
-	pib            any // Policy Information Base
-	holdTime       time.Duration
-	capabilities   []Capability
-	conn           *net.TCPConn
+	locRib       *LocRib // reference of bgp.rib. This field is called by every peers. When handling this, we must get lock.
+	rib          *AdjRib
+	pib          any // Policy Information Base
+	capabilities []Capability
+	conn         *net.TCPConn
+
 	connCh         chan *net.TCPConn
 	eventQueue     chan event
 	requestQueue   chan any
+	propagateCh    chan Packet
 	tx             chan *Packet
 	rx             chan *Packet
-	logger         log.Logger
 	connRetryTimer *timer
 	keepAliveTimer *timer
 	holdTimer      *timer
-	initialized    bool
-	listenerOpen   bool
 
+	logger log.Logger
+
+	initialized  bool
+	listenerOpen bool
+	releaseFuncs []func()
+
+	mutex          sync.RWMutex
 	fsm            FSM
 	bestPathConfig *BestPathConfig
 }
 
 type peerInfo struct {
+	id        int
 	neighbor  *neighbor
 	link      netlink.Link
 	addr      net.IP
@@ -146,6 +151,12 @@ type peerInfo struct {
 	as        int
 	routerId  net.IP
 	timestamp time.Time
+}
+
+type interval struct {
+	holdTime  time.Duration
+	keepalive time.Duration
+	connRetry time.Duration
 }
 
 func (pi *peerInfo) isIBGP() bool {
@@ -177,13 +188,15 @@ const (
 	DEFAULT_HOLD_TIME_INTERVAL          time.Duration = 180 * time.Second
 )
 
-func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib, adjRibIn *AdjRibIn) *peer {
+func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib, adjRibIn *AdjRibIn, propagateCh chan Packet) *peer {
 	adjRib := &AdjRib{In: adjRibIn, Out: &AdjRibOut{mutex: &sync.RWMutex{}, table: make(map[string]*Path)}}
 	peerLogger := logger.With()
 	peerLogger.Set("remote-as", strconv.Itoa(peerAS))
 	peerLogger.Set("address", addr.String())
+	rand.Seed(time.Now().UnixNano())
 	return &peer{
 		peerInfo: &peerInfo{
+			id:        rand.Int(),
 			neighbor:  newNeighbor(addr, peerAS),
 			addr:      local,
 			link:      link,
@@ -193,7 +206,6 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 		},
 		locRib:         locRib,
 		rib:            adjRib,
-		holdTime:       DEFAULT_HOLD_TIME_INTERVAL,
 		capabilities:   defaultCaps(),
 		fsm:            newFSM(),
 		eventQueue:     make(chan event, 128),
@@ -201,12 +213,14 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 		tx:             make(chan *Packet, 128),
 		rx:             make(chan *Packet, 128),
 		connCh:         make(chan *net.TCPConn, 1),
+		propagateCh:    propagateCh,
 		logger:         peerLogger,
 		connRetryTimer: newTimer(DEFAULT_CONNECT_RETRY_TIME_INTERVAL),
 		keepAliveTimer: newTimer(DEFAULT_KEEPALIVE_TIME_INTERVAL),
 		holdTimer:      newTimer(DEFAULT_HOLD_TIME_INTERVAL),
 		initialized:    false,
 		listenerOpen:   false,
+		releaseFuncs:   make([]func(), 0),
 	}
 }
 
@@ -327,7 +341,7 @@ func (p *peer) finishInitiate(conn *net.TCPConn) error {
 func (p *peer) sendOpenMsg(options []*Option) error {
 	builder := Builder(OPEN)
 	builder.AS(p.as)
-	builder.HoldTime(p.holdTime)
+	builder.HoldTime(p.holdTimer.interval)
 	builder.Identifier(p.addr) // TODO: Identifier is specified by peer. it shall be the largest address in the host.
 	builder.Options(options)
 	p.tx <- builder.Packet()
@@ -341,6 +355,7 @@ func (p *peer) handleConn(ctx context.Context) error {
 	}
 	p.logInfo("establish TCP connection")
 	childCtx, cancel := context.WithCancel(ctx)
+	p.releaseFuncs = append(p.releaseFuncs, cancel)
 	// TX handle
 	go func() {
 		p.logInfo("Tx handle start...")
@@ -360,8 +375,7 @@ func (p *peer) handleConn(ctx context.Context) error {
 					// close connection
 					notification := GetMessage[*Notification](msg.Message)
 					p.logWarn("send Notification msg: %s", notification.ErrorCode)
-					p.conn.Close()
-					cancel()
+					p.release()
 				}
 			case <-childCtx.Done():
 				p.logInfo("Tx handle stop...")
@@ -383,12 +397,12 @@ func (p *peer) handleConn(ctx context.Context) error {
 				n, err := p.conn.Read(data)
 				if err != nil {
 					if err == io.EOF {
-						cancel()
+						p.release()
 						break
 					} else {
-						cancel()
 						p.enqueueEvent(&bgpTransFatalError{})
 						p.logErr("Rx handler: failed to read %s", err)
+						p.release()
 					}
 				}
 				packets, err := preParse(data[:n])
@@ -663,6 +677,52 @@ func (p *peer) triggerDecisionProcessEvent(evt event) error {
 	}
 	de := evt.(*triggerDecisionProcess)
 	errs := []error{}
+	if de.withdrawn {
+		withdrawPathes := make([]*Path, 0)
+		for _, pathPrefix := range de.pathes {
+			storedPathes := p.rib.In.Lookup(pathPrefix.nlri)
+			for _, withdrawPath := range storedPathes {
+				if p.peerInfo.id == withdrawPath.info.id {
+					// delete from adj-rib-in
+					p.logger.Info("withdraw a path from %s(%d) to %s", p.neighbor.addr.String(), p.neighbor.as, withdrawPath.nlri.String())
+					if err := p.rib.In.DropById(withdrawPath.nlri, withdrawPath.id); err != nil {
+						errs = append(errs, err)
+						continue
+					}
+					if withdrawPath.best {
+						withdrawPathes = append(withdrawPathes, withdrawPath)
+					}
+				}
+			}
+		}
+		if len(errs) != 0 {
+			errMsg := ""
+			for _, e := range errs {
+				errMsg += e.Error() + ", "
+			}
+			return fmt.Errorf("Decision process: %s", errMsg)
+		}
+		if len(withdrawPathes) > 0 {
+			p.locRib.enqueue(withdrawPathes, de.withdrawn)
+		}
+		updatePathes := make([]*Path, 0)
+		for _, withdrawPath := range withdrawPathes {
+			reason, selected, err := p.rib.In.Calculate(withdrawPath.nlri, p.bestPathConfig)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if reason == REASON_NO_PATH || selected == nil {
+				p.logInfo("prefix %s is no path", withdrawPath.nlri.String())
+				continue
+			}
+			updatePathes = append(updatePathes, selected)
+		}
+		if len(updatePathes) > 0 {
+			p.locRib.enqueue(updatePathes, false)
+		}
+		return nil
+	}
 	updatedPathes := make([]*Path, 0, len(de.pathes))
 	for _, path := range de.pathes {
 		reason, selected, err := p.rib.In.Select(p.as, path, de.withdrawn, p.bestPathConfig)
@@ -685,7 +745,7 @@ func (p *peer) triggerDecisionProcessEvent(evt event) error {
 		return fmt.Errorf("Decision process: %s", errMsg)
 	}
 	if len(updatedPathes) > 0 {
-		p.locRib.enqueue(updatedPathes)
+		p.locRib.enqueue(updatedPathes, false)
 	}
 	return nil
 }
@@ -707,8 +767,19 @@ func (p *peer) init() error {
 
 // release resources
 func (p *peer) release() error {
+	p.logger.Info("release peer resources")
 	p.keepAliveTimer.stop()
 	p.holdTimer.stop()
+	p.connRetryTimer.reset(p.connRetryTimer.interval)
+	p.initialized = false
+	p.listenerOpen = false
+	for _, f := range p.releaseFuncs {
+		f()
+	}
+	if p.conn != nil {
+		p.conn.Close()
+	}
+	// release adj-rib-in resources
 	return nil
 }
 
@@ -869,26 +940,30 @@ func (p *peer) generateOutPath(path *Path) (*Path, error) {
 	return &outPath, nil
 }
 
-func (p *peer) buildUpdateMessage(pathes []*Path) (*Packet, error) {
-	builder := Builder(UPDATE)
-	if len(pathes) == 0 {
-		return builder.Packet(), nil
-	}
-	if len(pathes) > 1 {
-		for i := 0; i < len(pathes)-1; i++ {
-			p1 := pathes[i]
-			p2 := pathes[i+1]
-			if _, err := comparePath(p1, p2); err != nil {
-				return nil, fmt.Errorf("buildUpdateMessage: %w", err)
-			}
-		}
-	}
-	nlri := make([]*Prefix, 0, len(pathes))
+func (p *peer) buildUpdateMessage(pathes []*Path) ([]*Packet, error) {
+	groupedPathes := make(map[int][]*Path)
 	for _, path := range pathes {
-		nlri = append(nlri, path.nlri)
+		if _, ok := groupedPathes[path.group]; !ok {
+			groupedPathes[path.group] = make([]*Path, 0, 1)
+		}
+		groupedPathes[path.group] = append(groupedPathes[path.group], path)
 	}
-	builder.PathAttrs(pathes[0].GetPathAttrs())
-	builder.NLRI(nlri)
+	packets := make([]*Packet, 0)
+	for _, pathes := range groupedPathes {
+		builder := Builder(UPDATE)
+		nlri := make([]*Prefix, 0, len(pathes))
+		for _, path := range pathes {
+			nlri = append(nlri, path.nlri)
+		}
+		builder.PathAttrs(pathes[0].GetPathAttrs())
+		builder.NLRI(nlri)
+	}
+	return packets, nil
+}
+
+func (p *peer) buildWithdrawMessage(prefixes []*Prefix) (*Packet, error) {
+	builder := Builder(UPDATE)
+	builder.WithdrawnRoutes(prefixes)
 	return builder.Packet(), nil
 }
 
@@ -910,6 +985,27 @@ func (p *peer) buildUpdateMessage(pathes []*Path) (*Packet, error) {
 //
 // When the updating of the Adj-RIB-Out and the Routing Table is complete, the local BGP speaker runs the update-Send process.
 func (p *peer) Disseminate(pathes []*Path, withdrawn bool) error {
+	if withdrawn {
+		filteredPathes := make([]*Path, 0, len(pathes))
+		for _, path := range pathes {
+			// no filter
+			filteredPathes = append(filteredPathes, path)
+		}
+		prefixes := make([]*Prefix, 0, len(filteredPathes))
+		for _, path := range filteredPathes {
+			if err := p.rib.Out.Drop(path.nlri); err != nil {
+				return fmt.Errorf("Disseminate: drop from Adj-Rib-Out: %s", err)
+			}
+			prefixes = append(prefixes, path.nlri)
+		}
+		msg, err := p.buildWithdrawMessage(prefixes)
+		if err != nil {
+			return fmt.Errorf("Disseminate: %s", err)
+		}
+		p.tx <- msg
+		p.logInfo("send withdraw: %v", GetMessage[*Update](msg.Message).WithdrawnRoutes)
+		return nil
+	}
 	// synchronize adj-rib-out with loc-rib
 	// create path attributes for each path
 	// call external update process
@@ -929,12 +1025,18 @@ func (p *peer) Disseminate(pathes []*Path, withdrawn bool) error {
 		}
 		outPathes = append(outPathes, outPath)
 	}
-	msg, err := p.buildUpdateMessage(outPathes)
+	messages, err := p.buildUpdateMessage(outPathes)
 	if err != nil {
 		return fmt.Errorf("Disseminate: %w", err)
 	}
-	p.tx <- msg
-	p.logInfo("send update: %v", GetMessage[*Update](msg.Message).NetworkLayerReachabilityInfo)
+	for _, msg := range messages {
+		p.tx <- msg
+		p.logInfo("send update: %v", GetMessage[*Update](msg.Message).NetworkLayerReachabilityInfo)
+	}
+	return nil
+}
+
+func (p *peer) withdraw(path *Path) error {
 	return nil
 }
 

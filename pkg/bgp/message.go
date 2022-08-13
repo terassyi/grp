@@ -115,7 +115,7 @@ func PrefixFromString(str string) *Prefix {
 	l, _ := strconv.Atoi(s[1])
 	return &Prefix{
 		Length: uint8(l),
-		Prefix: net.ParseIP(s[0]),
+		Prefix: net.ParseIP(s[0]).To4(),
 	}
 }
 
@@ -434,15 +434,30 @@ func ParseUpdateMsg(data []byte) (*Update, error) {
 	wBuf := bytes.NewBuffer(buf.Next(int(update.WithdrawnRoutesLen)))
 	wRoutes := make([]*Prefix, 0)
 	for wBuf.Len() > 0 {
-		l, err := wBuf.ReadByte()
+		pref, err := wBuf.ReadByte()
 		if err != nil {
 			return nil, fmt.Errorf("ParseUpdateMsg: withdrawn routes len: %w", err)
 		}
-		wRoutes = append(wRoutes, &Prefix{Length: l, Prefix: wBuf.Next(int(l))})
+		l := pref / 8
+		if pref%8 != 0 {
+			l++
+		}
+		addr := make([]byte, l)
+		if err := binary.Read(wBuf, binary.BigEndian, addr); err != nil {
+			return nil, fmt.Errorf("ParseUpdateMsg: withdrawn routes: %w", err)
+		}
+		addr = append(addr, make([]byte, 4-l)...)
+		wRoutes = append(wRoutes, &Prefix{
+			Length: pref,
+			Prefix: net.IP(addr),
+		})
 	}
 	update.WithdrawnRoutes = wRoutes
 	if err := binary.Read(buf, binary.BigEndian, &update.TotalPathAttrLen); err != nil {
 		return nil, fmt.Errorf("ParseUpdateMsg: total path attrs len: %w", err)
+	}
+	if update.TotalPathAttrLen == 0 && len(update.WithdrawnRoutes) > 0 {
+		return update, nil
 	}
 	pathAttrBuf := bytes.NewBuffer(buf.Next(int(update.TotalPathAttrLen)))
 	pathAttrs, err := ParsePathAttrs(pathAttrBuf)
@@ -600,6 +615,9 @@ func (u *Update) Validate(l uint16) ([]byte, *ErrorCode) {
 		return nil, ErrUpdateMalformedAttributeList
 	}
 	if u.TotalPathAttrLen == 0 && u.WithdrawnRoutesLen == 0 && len(u.NetworkLayerReachabilityInfo) == 0 {
+		return nil, nil
+	}
+	if u.WithdrawnRoutesLen > 0 {
 		return nil, nil
 	}
 	wellKnownMandatoryAttrs := 0
@@ -827,7 +845,7 @@ func (b *messageBuilder) WithdrawnRoutes(routes []*Prefix) {
 			if route.Length%8 != 0 {
 				l++
 			}
-			a += l
+			a += (l + 1)
 		}
 		b.update.WithdrawnRoutes = append(b.update.WithdrawnRoutes, routes...)
 		b.update.WithdrawnRoutesLen += a

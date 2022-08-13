@@ -138,6 +138,7 @@ const (
 	REASON_BGP_PEER_ROUTER_ID     BestPathSelectionReason = iota
 	REASON_BGP_PEER_IP_ADDR       BestPathSelectionReason = iota
 
+	REASON_NO_PATH      BestPathSelectionReason = 252
 	REASON_INVALID      BestPathSelectionReason = 253
 	REASON_NOT_COMPARED BestPathSelectionReason = 254
 	REASON_ONLY_PATH    BestPathSelectionReason = 255
