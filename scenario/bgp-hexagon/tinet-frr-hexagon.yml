@@ -11,6 +11,8 @@
 nodes:
   - name: R0
     image: slankdev/frr
+    mounts:
+      - $(pwd):/go/grp
     interfaces:
       - { name: net0, type: direct, args: R1#net0 }
       - { name: net1, type: direct, args: R5#net0 }
@@ -55,6 +57,8 @@ node_configs:
           -c "neighbor 10.0.0.2 remote-as 200"
           -c "neighbor 10.5.0.2 remote-as 600"
           -c "network 10.0.0.0/24"
+          -c "neighbor 10.0.0.2 soft-reconfiguration inbound"
+          -c "neighbor 10.5.0.2 soft-reconfiguration inbound"
   - name: R1
     cmds:
       - cmd: /usr/lib/frr/frr start

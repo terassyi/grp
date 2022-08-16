@@ -124,7 +124,6 @@ type peer struct {
 	connCh         chan *net.TCPConn
 	eventQueue     chan event
 	requestQueue   chan any
-	propagateCh    chan Packet
 	tx             chan *Packet
 	rx             chan *Packet
 	connRetryTimer *timer
@@ -188,7 +187,7 @@ const (
 	DEFAULT_HOLD_TIME_INTERVAL          time.Duration = 180 * time.Second
 )
 
-func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib, adjRibIn *AdjRibIn, propagateCh chan Packet) *peer {
+func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP, myAS, peerAS int, locRib *LocRib, adjRibIn *AdjRibIn) *peer {
 	adjRib := &AdjRib{In: adjRibIn, Out: &AdjRibOut{mutex: &sync.RWMutex{}, table: make(map[string]*Path)}}
 	peerLogger := logger.With()
 	peerLogger.Set("remote-as", strconv.Itoa(peerAS))
@@ -213,7 +212,6 @@ func newPeer(logger log.Logger, link netlink.Link, local, addr, routerId net.IP,
 		tx:             make(chan *Packet, 128),
 		rx:             make(chan *Packet, 128),
 		connCh:         make(chan *net.TCPConn, 1),
-		propagateCh:    propagateCh,
 		logger:         peerLogger,
 		connRetryTimer: newTimer(DEFAULT_CONNECT_RETRY_TIME_INTERVAL),
 		keepAliveTimer: newTimer(DEFAULT_KEEPALIVE_TIME_INTERVAL),
@@ -773,13 +771,43 @@ func (p *peer) release() error {
 	p.connRetryTimer.reset(p.connRetryTimer.interval)
 	p.initialized = false
 	p.listenerOpen = false
+	// release adj-rib-in resources
+	releasePathes := p.rib.In.LookupByPeer(p.id)
+	propagatePathes := make([]*Path, 0)
+	for _, path := range releasePathes {
+		if err := p.rib.In.DropById(path.nlri, path.id); err != nil {
+			return fmt.Errorf("release: %w", err)
+		}
+		if path.best {
+			propagatePathes = append(propagatePathes, path)
+		}
+	}
+	if len(propagatePathes) > 0 {
+		p.locRib.enqueue(propagatePathes, true)
+	}
+	// propagate new pathes
+	newPathes := make([]*Path, 0)
+	for _, path := range propagatePathes {
+		reason, selected, err := p.rib.In.Calculate(path.nlri, p.bestPathConfig)
+		if err != nil {
+			p.logErr("realse: %s", err)
+			continue
+		}
+		if reason == REASON_NO_PATH || selected == nil {
+			p.logInfo("prefix %s is no path", path.nlri.String())
+			continue
+		}
+		newPathes = append(newPathes, selected)
+	}
+	if len(newPathes) > 0 {
+		p.locRib.enqueue(newPathes, false)
+	}
 	for _, f := range p.releaseFuncs {
 		f()
 	}
 	if p.conn != nil {
 		p.conn.Close()
 	}
-	// release adj-rib-in resources
 	return nil
 }
 
@@ -941,6 +969,9 @@ func (p *peer) generateOutPath(path *Path) (*Path, error) {
 }
 
 func (p *peer) buildUpdateMessage(pathes []*Path) ([]*Packet, error) {
+	if len(pathes) == 0 {
+		return []*Packet{Builder(UPDATE).Packet()}, nil
+	}
 	groupedPathes := make(map[int][]*Path)
 	for _, path := range pathes {
 		if _, ok := groupedPathes[path.group]; !ok {
@@ -957,6 +988,7 @@ func (p *peer) buildUpdateMessage(pathes []*Path) ([]*Packet, error) {
 		}
 		builder.PathAttrs(pathes[0].GetPathAttrs())
 		builder.NLRI(nlri)
+		packets = append(packets, builder.Packet())
 	}
 	return packets, nil
 }
@@ -1033,10 +1065,6 @@ func (p *peer) Disseminate(pathes []*Path, withdrawn bool) error {
 		p.tx <- msg
 		p.logInfo("send update: %v", GetMessage[*Update](msg.Message).NetworkLayerReachabilityInfo)
 	}
-	return nil
-}
-
-func (p *peer) withdraw(path *Path) error {
 	return nil
 }
 

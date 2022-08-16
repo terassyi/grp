@@ -205,6 +205,37 @@ func (b *Bgp) poll(ctx context.Context) error {
 		}
 	}()
 	go b.pollRib(ctx)
+	go b.watchLinkStatus()
+	return nil
+}
+
+func (b *Bgp) watchLinkStatus() error {
+	updateCh := make(chan netlink.LinkUpdate)
+	doneCh := make(chan struct{})
+	defer close(doneCh)
+	if err := netlink.LinkSubscribe(updateCh, doneCh); err != nil {
+		return err
+	}
+	for update := range updateCh {
+		for _, p := range b.peers {
+			if p.link.Attrs().Name == update.Link.Attrs().Name {
+				if update.IfInfomsg.Flags&syscall.IFF_UP == 0 {
+					b.logger.Warn("peer %s(%d) on %s is down", p.neighbor.addr, p.neighbor.as, p.link.Attrs().Name)
+					if p.fsm.GetState() != IDLE {
+						if err := p.release(); err != nil {
+							return err
+						}
+					}
+				} else {
+					b.logger.Warn("peer %s(%d) on %s is up", p.neighbor.addr, p.neighbor.as, p.link.Attrs().Name)
+					if p.fsm.GetState() == IDLE {
+						p.enqueueEvent(&bgpStart{})
+					}
+				}
+			}
+		}
+	}
+	b.logger.Info("finish watchLinkStatus")
 	return nil
 }
 
@@ -265,7 +296,7 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 			return nil, err
 		}
 	}
-	p := newPeer(b.logger, link, local, addr, ri, myAS, peerAS, b.locRib, b.adjRibIn, b.propagateCh)
+	p := newPeer(b.logger, link, local, addr, ri, myAS, peerAS, b.locRib, b.adjRibIn)
 	if _, ok := b.peers[addr.String()]; ok && !force {
 		return nil, ErrPeerAlreadyRegistered
 	}

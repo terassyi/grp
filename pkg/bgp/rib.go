@@ -90,6 +90,23 @@ func (r *AdjRibIn) LookupById(id int) *Path {
 	return nil
 }
 
+func (r *AdjRibIn) LookupByPeer(peerId int) []*Path {
+	pathes := make([]*Path, 0)
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	for _, network := range r.table {
+		for _, path := range network {
+			if path.local {
+				continue
+			}
+			if path.info.id == peerId {
+				pathes = append(pathes, path)
+			}
+		}
+	}
+	return pathes
+}
+
 func (r *AdjRibIn) Drop(prefix *Prefix, id int, next net.IP, asSequence []uint16) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()

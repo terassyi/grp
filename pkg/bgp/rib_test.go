@@ -318,7 +318,7 @@ func TestPeer_Select(t *testing.T) {
 	ar := newAdjRibIn()
 	eth0, err := netlink.LinkByName("eth0")
 	require.NoError(t, err)
-	p := newPeer(logger, eth0, net.ParseIP("10.0.0.2"), net.ParseIP("10.0.0.3"), net.ParseIP("1.1.1.1"), 100, 200, r, ar, make(chan Packet, 0))
+	p := newPeer(logger, eth0, net.ParseIP("10.0.0.2"), net.ParseIP("10.0.0.3"), net.ParseIP("1.1.1.1"), 100, 200, r, ar)
 
 	tests := []struct {
 		name            string

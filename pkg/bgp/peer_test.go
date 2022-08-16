@@ -14,7 +14,7 @@ func TestPeerHandleEvent(t *testing.T) {
 	logger, err := log.New(log.NoLog, "")
 	r := &LocRib{}
 	require.NoError(t, err)
-	p := newPeer(logger, nil, net.ParseIP("10.10.0.1"), net.ParseIP("10.0.0.2"), net.ParseIP("1.1.1.1"), 100, 200, r, &AdjRibIn{}, make(chan Packet))
+	p := newPeer(logger, nil, net.ParseIP("10.10.0.1"), net.ParseIP("10.0.0.2"), net.ParseIP("1.1.1.1"), 100, 200, r, &AdjRibIn{})
 	for _, d := range []struct {
 		evt event
 	}{
@@ -153,7 +153,7 @@ func TestPeerChangeState(t *testing.T) {
 
 func TestPeer_generateOutPath(t *testing.T) {
 	logger, _ := log.New(log.NoLog, "")
-	p := newPeer(logger, nil, net.ParseIP("10.0.0.2"), net.ParseIP("10.0.0.3"), net.ParseIP("1.1.1.1"), 100, 200, NewLocRib(), newAdjRibIn(), make(chan Packet))
+	p := newPeer(logger, nil, net.ParseIP("10.0.0.2"), net.ParseIP("10.0.0.3"), net.ParseIP("1.1.1.1"), 100, 200, NewLocRib(), newAdjRibIn())
 	tests := []struct {
 		name         string
 		incomingPath *Path
@@ -241,7 +241,7 @@ func TestPeer_generateOutPath(t *testing.T) {
 
 func TestPeer_buildUpdateMessage(t *testing.T) {
 	logger, _ := log.New(log.NoLog, "")
-	p := newPeer(logger, nil, net.ParseIP("10.0.0.2"), net.ParseIP("10.0.0.3"), net.ParseIP("1.1.1.1"), 100, 200, NewLocRib(), newAdjRibIn(), make(chan Packet))
+	p := newPeer(logger, nil, net.ParseIP("10.0.0.2"), net.ParseIP("10.0.0.3"), net.ParseIP("1.1.1.1"), 100, 200, NewLocRib(), newAdjRibIn())
 	tests := []struct {
 		name   string
 		pathes []*Path
@@ -324,7 +324,7 @@ func TestPeer_buildUpdateMessage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			msg, err := p.buildUpdateMessage(tt.pathes)
 			require.NoError(t, err)
-			assert.Equal(t, tt.update, GetMessage[*Update](msg.Message))
+			assert.Equal(t, tt.update, GetMessage[*Update](msg[0].Message))
 		})
 	}
 }
