@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/hpcloud/tail"
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"github.com/terassyi/grp/pb"
 	"github.com/terassyi/grp/pkg/bgp"
@@ -52,6 +53,9 @@ func init() {
 		getNeighborSubCmd,
 		listNeighborSubCmd,
 		remoteASSubCmd,
+	)
+	showSubCmd.AddCommand(
+		showRouteSubCmd,
 	)
 
 	BgpCmd.AddCommand(
@@ -106,6 +110,43 @@ var showSubCmd = &cobra.Command{
 		fmt.Printf("  Running at %d\n", res.Port)
 		fmt.Printf("  AS number %d\n", res.As)
 		fmt.Printf("  Router id %s\n", res.RouterId)
+	},
+}
+
+var showRouteSubCmd = &cobra.Command{
+	Use:   "route",
+	Short: "show bgp routes in Adj-Rib-In",
+	Run: func(cmd *cobra.Command, args []string) {
+		bc := newBgpClient()
+		defer bc.conn.Close()
+		ctx := context.Background()
+		info, err := bc.Show(ctx, &pb.BgpShowRequest{})
+		if err != nil {
+			os.Exit(1)
+		}
+		routes, err := bc.ShowRoute(ctx, &pb.BgpShowRouteRequest{})
+		if err != nil {
+			os.Exit(1)
+		}
+		fmt.Println("Bgp table information")
+		fmt.Printf("  local router id is %s\n", info.RouterId)
+		fmt.Printf("  local As is %d\n\n", info.As)
+
+		table := tablewriter.NewWriter(os.Stdout)
+		table.SetHeader([]string{"Network", "Next Hop", "Metric", "Local Pref", "Path", "Best", "Reason"})
+		for _, route := range routes.Routes {
+			path := ""
+			for _, p := range route.Path {
+				path += fmt.Sprintf(" %d", p)
+			}
+			path += " i"
+			best := "false"
+			if route.Best {
+				best = "true"
+			}
+			table.Append([]string{route.Network, route.Nexthop, strconv.Itoa(int(route.Metric)), strconv.Itoa(int(route.LocalPref)), path, best, route.Reason})
+		}
+		table.Render()
 	},
 }
 

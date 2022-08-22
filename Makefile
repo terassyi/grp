@@ -46,9 +46,7 @@ down:
 test:
 	$(COMPOSE) -f $(BGP_TEST_COMPOSE) up -d 
 	@echo "----- Unit Test -----"
-	$(COMPOSE) -f $(BGP_TEST_COMPOSE) exec $(BGP_TEST_GRP_CONTAINER_NAME) $(GOTEST) ./...
-	@echo "----- Integration Test -----"
-	$(COMPOSE) -f $(BGP_TEST_COMPOSE) exec $(BGP_TEST_GRP_CONTAINER_NAME) $(GOTEST) -tags=integration -v ./...
+	$(COMPOSE) -f $(BGP_TEST_COMPOSE) exec $(BGP_TEST_GRP_CONTAINER_NAME) $(GOTEST) -cover ./...
 
 	$(COMPOSE) -f $(BGP_TEST_COMPOSE) down 
 

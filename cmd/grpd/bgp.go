@@ -55,7 +55,7 @@ var bgpCmd = &cobra.Command{
 				Out:   grpLog.BGP_PATH,
 			}
 		}
-		if level != 0 {
+		if level != -1 {
 			conf.Bgp.Log.Level = level
 		}
 		if out != "" {

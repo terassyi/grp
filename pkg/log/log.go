@@ -68,7 +68,7 @@ func (l Level) String() string {
 
 func New(level Level, out string) (Logger, error) {
 	if level > Error {
-		return nil, fmt.Errorf("New logger: Invalid log level.")
+		return nil, fmt.Errorf("New logger: Invalid log level: %d", level)
 	}
 	l := &logger{
 		level: level,

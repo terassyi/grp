@@ -399,6 +399,19 @@ func TestParseUpdateMsg(t *testing.T) {
 				NetworkLayerReachabilityInfo: []*Prefix{},
 			},
 		},
+		{
+			name: "UPDATE 5",
+			data: []byte{
+				0x00, 0x08, 0x18, 0x0a, 0x00, 0x00, 0x18, 0x0a, 0x05, 0x00, 0x00, 0x00,
+			},
+			exp: &Update{
+				WithdrawnRoutesLen: 8,
+				WithdrawnRoutes: []*Prefix{
+					PrefixFromString("10.0.0.0/24"),
+					PrefixFromString("10.5.0.0/24"),
+				},
+			},
+		},
 	}
 	t.Parallel()
 	for _, tt := range tests {

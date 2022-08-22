@@ -40,6 +40,7 @@ type Bgp struct {
 	routeManager         pb.RouteApiClient
 	routeManagerEndpoint string
 	requestQueue         chan *Request
+	propagateCh          chan Packet
 	config               *BgpConfig
 	logger               log.Logger
 	signalCh             chan os.Signal
@@ -86,6 +87,7 @@ func New(port int, logLevel int, out string) (*Bgp, error) {
 		routeManagerEndpoint: fmt.Sprintf("%s:%d", route.DefaultRouteManagerHost, route.DefaultRouteManagerPort),
 		logger:               logger,
 		requestQueue:         make(chan *Request, 16),
+		propagateCh:          make(chan Packet, 16),
 		signalCh:             sigCh,
 		id:                   rand.Int(),
 		config:               &BgpConfig{bestPathConfig: &BestPathConfig{}},
@@ -192,12 +194,48 @@ func (b *Bgp) poll(ctx context.Context) error {
 				if err := b.requestHandle(ctx, req); err != nil {
 					b.logger.Err("Request handler: %s", err)
 				}
+			case msg := <-b.propagateCh:
+				b.logger.Info("Propagete Request: %s", msg)
+				for _, p := range b.peers {
+					p.enqueueEvent(&propagateMsg{&msg}) // now, propagated message is only update withdrawn message in this path.
+				}
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
 	go b.pollRib(ctx)
+	go b.watchLinkStatus()
+	return nil
+}
+
+func (b *Bgp) watchLinkStatus() error {
+	updateCh := make(chan netlink.LinkUpdate)
+	doneCh := make(chan struct{})
+	defer close(doneCh)
+	if err := netlink.LinkSubscribe(updateCh, doneCh); err != nil {
+		return err
+	}
+	for update := range updateCh {
+		for _, p := range b.peers {
+			if p.link.Attrs().Name == update.Link.Attrs().Name {
+				if update.IfInfomsg.Flags&syscall.IFF_UP == 0 {
+					b.logger.Warn("peer %s(%d) on %s is down", p.neighbor.addr, p.neighbor.as, p.link.Attrs().Name)
+					if p.fsm.GetState() != IDLE {
+						if err := p.release(); err != nil {
+							return err
+						}
+					}
+				} else {
+					b.logger.Warn("peer %s(%d) on %s is up", p.neighbor.addr, p.neighbor.as, p.link.Attrs().Name)
+					if p.fsm.GetState() == IDLE {
+						p.enqueueEvent(&bgpStart{})
+					}
+				}
+			}
+		}
+	}
+	b.logger.Info("finish watchLinkStatus")
 	return nil
 }
 
@@ -270,31 +308,61 @@ func (b *Bgp) registerPeer(addr, routerId net.IP, myAS, peerAS int, force bool) 
 func (b *Bgp) pollRib(ctx context.Context) {
 	for {
 		select {
-		case pathes := <-b.locRib.queue:
-			for _, path := range pathes {
-				if err := b.locRib.Insert(path); err != nil {
-					b.logger.Err("pollRib: %s", err)
-				}
-				if b.routeManager != nil {
-					src := path.nextHop.String()
-					if _, err := b.routeManager.SetRoute(ctx, &pb.SetRouteRequest{
-						Route: &pb.Route{
-							Destination:       path.nlri.String(),
-							Src:               nil,
-							Gw:                &src,
-							Link:              path.link.Attrs().Name,
-							Protocol:          pb.Protocol(route.RT_PROTO_BGP),
-							BgpOriginExternal: true,
-						},
-					}); err != nil {
+		case req := <-b.locRib.queue:
+			if req.withdraw {
+				for _, path := range req.pathes {
+					if err := b.locRib.Drop(path); err != nil {
 						b.logger.Err("pollRib: %s", err)
 					}
-				} else {
-					b.logger.Warn("Cannot insert to fib bacause of route manager not running")
+					if b.routeManager != nil {
+						src := path.nextHop.String()
+						if _, err := b.routeManager.DeleteRoute(ctx, &pb.DeleteRouteRequest{
+							Route: &pb.Route{
+								Destination:       path.nlri.String(),
+								Src:               nil,
+								Gw:                &src,
+								Link:              path.link.Attrs().Name,
+								Protocol:          pb.Protocol(route.RT_PROTO_BGP),
+								BgpOriginExternal: true,
+							},
+						}); err != nil {
+							b.logger.Err("pollRib: %s", err)
+						}
+					} else {
+						b.logger.Warn("Cannot insert to fib bacause of route manager not running")
+					}
 				}
-			}
-			for _, peer := range b.peers {
-				peer.enqueueEvent(&triggerDissemination{pathes: pathes, withdrawn: false})
+				for _, peer := range b.peers {
+					peer.enqueueEvent(&triggerDissemination{pathes: req.pathes, withdrawn: req.withdraw})
+				}
+
+			} else {
+				for _, path := range req.pathes {
+					if err := b.locRib.Insert(path); err != nil {
+						b.logger.Err("pollRib: %s", err)
+					}
+					if b.routeManager != nil {
+						src := path.nextHop.String()
+						if _, err := b.routeManager.SetRoute(ctx, &pb.SetRouteRequest{
+							Route: &pb.Route{
+								Destination:       path.nlri.String(),
+								Src:               nil,
+								Gw:                &src,
+								Link:              path.link.Attrs().Name,
+								Protocol:          pb.Protocol(route.RT_PROTO_BGP),
+								BgpOriginExternal: true,
+							},
+						}); err != nil {
+							b.logger.Err("pollRib: %s", err)
+						}
+					} else {
+						b.logger.Warn("Cannot insert to fib bacause of route manager not running")
+					}
+				}
+				for _, peer := range b.peers {
+					peer.enqueueEvent(&triggerDissemination{pathes: req.pathes, withdrawn: req.withdraw})
+				}
+
 			}
 		case <-ctx.Done():
 			return

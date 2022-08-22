@@ -324,7 +324,7 @@ func TestPeer_buildUpdateMessage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			msg, err := p.buildUpdateMessage(tt.pathes)
 			require.NoError(t, err)
-			assert.Equal(t, tt.update, GetMessage[*Update](msg.Message))
+			assert.Equal(t, tt.update, GetMessage[*Update](msg[0].Message))
 		})
 	}
 }

@@ -26,12 +26,14 @@ type BgpApiClient interface {
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 	GetLogPath(ctx context.Context, in *GetLogPathRequest, opts ...grpc.CallOption) (*GetLogPathResponse, error)
 	Show(ctx context.Context, in *BgpShowRequest, opts ...grpc.CallOption) (*BgpShowResponse, error)
+	ShowRoute(ctx context.Context, in *BgpShowRouteRequest, opts ...grpc.CallOption) (*BgpShowRouteResponse, error)
 	GetNeighbor(ctx context.Context, in *GetNeighborRequest, opts ...grpc.CallOption) (*GetNeighborResponse, error)
 	ListNeighbor(ctx context.Context, in *ListNeighborRequest, opts ...grpc.CallOption) (*ListNeighborResponse, error)
 	SetAS(ctx context.Context, in *SetASRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 	RouterId(ctx context.Context, in *RouterIdRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 	RemoteAS(ctx context.Context, in *RemoteASRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 	Network(ctx context.Context, in *NetworkRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	DeleteNetwork(ctx context.Context, in *NetworkRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 }
 
 type bgpApiClient struct {
@@ -63,6 +65,15 @@ func (c *bgpApiClient) GetLogPath(ctx context.Context, in *GetLogPathRequest, op
 func (c *bgpApiClient) Show(ctx context.Context, in *BgpShowRequest, opts ...grpc.CallOption) (*BgpShowResponse, error) {
 	out := new(BgpShowResponse)
 	err := c.cc.Invoke(ctx, "/grp.BgpApi/Show", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *bgpApiClient) ShowRoute(ctx context.Context, in *BgpShowRouteRequest, opts ...grpc.CallOption) (*BgpShowRouteResponse, error) {
+	out := new(BgpShowRouteResponse)
+	err := c.cc.Invoke(ctx, "/grp.BgpApi/ShowRoute", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -123,6 +134,15 @@ func (c *bgpApiClient) Network(ctx context.Context, in *NetworkRequest, opts ...
 	return out, nil
 }
 
+func (c *bgpApiClient) DeleteNetwork(ctx context.Context, in *NetworkRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, "/grp.BgpApi/DeleteNetwork", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BgpApiServer is the server API for BgpApi service.
 // All implementations must embed UnimplementedBgpApiServer
 // for forward compatibility
@@ -130,12 +150,14 @@ type BgpApiServer interface {
 	Health(context.Context, *HealthRequest) (*empty.Empty, error)
 	GetLogPath(context.Context, *GetLogPathRequest) (*GetLogPathResponse, error)
 	Show(context.Context, *BgpShowRequest) (*BgpShowResponse, error)
+	ShowRoute(context.Context, *BgpShowRouteRequest) (*BgpShowRouteResponse, error)
 	GetNeighbor(context.Context, *GetNeighborRequest) (*GetNeighborResponse, error)
 	ListNeighbor(context.Context, *ListNeighborRequest) (*ListNeighborResponse, error)
 	SetAS(context.Context, *SetASRequest) (*empty.Empty, error)
 	RouterId(context.Context, *RouterIdRequest) (*empty.Empty, error)
 	RemoteAS(context.Context, *RemoteASRequest) (*empty.Empty, error)
 	Network(context.Context, *NetworkRequest) (*empty.Empty, error)
+	DeleteNetwork(context.Context, *NetworkRequest) (*empty.Empty, error)
 	mustEmbedUnimplementedBgpApiServer()
 }
 
@@ -151,6 +173,9 @@ func (UnimplementedBgpApiServer) GetLogPath(context.Context, *GetLogPathRequest)
 }
 func (UnimplementedBgpApiServer) Show(context.Context, *BgpShowRequest) (*BgpShowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Show not implemented")
+}
+func (UnimplementedBgpApiServer) ShowRoute(context.Context, *BgpShowRouteRequest) (*BgpShowRouteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ShowRoute not implemented")
 }
 func (UnimplementedBgpApiServer) GetNeighbor(context.Context, *GetNeighborRequest) (*GetNeighborResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetNeighbor not implemented")
@@ -169,6 +194,9 @@ func (UnimplementedBgpApiServer) RemoteAS(context.Context, *RemoteASRequest) (*e
 }
 func (UnimplementedBgpApiServer) Network(context.Context, *NetworkRequest) (*empty.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Network not implemented")
+}
+func (UnimplementedBgpApiServer) DeleteNetwork(context.Context, *NetworkRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteNetwork not implemented")
 }
 func (UnimplementedBgpApiServer) mustEmbedUnimplementedBgpApiServer() {}
 
@@ -233,6 +261,24 @@ func _BgpApi_Show_Handler(srv interface{}, ctx context.Context, dec func(interfa
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(BgpApiServer).Show(ctx, req.(*BgpShowRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BgpApi_ShowRoute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BgpShowRouteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BgpApiServer).ShowRoute(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/grp.BgpApi/ShowRoute",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BgpApiServer).ShowRoute(ctx, req.(*BgpShowRouteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -345,6 +391,24 @@ func _BgpApi_Network_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BgpApi_DeleteNetwork_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NetworkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BgpApiServer).DeleteNetwork(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/grp.BgpApi/DeleteNetwork",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BgpApiServer).DeleteNetwork(ctx, req.(*NetworkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BgpApi_ServiceDesc is the grpc.ServiceDesc for BgpApi service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -363,6 +427,10 @@ var BgpApi_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Show",
 			Handler:    _BgpApi_Show_Handler,
+		},
+		{
+			MethodName: "ShowRoute",
+			Handler:    _BgpApi_ShowRoute_Handler,
 		},
 		{
 			MethodName: "GetNeighbor",
@@ -387,6 +455,10 @@ var BgpApi_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Network",
 			Handler:    _BgpApi_Network_Handler,
+		},
+		{
+			MethodName: "DeleteNetwork",
+			Handler:    _BgpApi_DeleteNetwork_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

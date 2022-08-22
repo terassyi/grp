@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"sort"
 	"sync"
 )
 
@@ -48,6 +49,21 @@ func (r *AdjRibIn) Insert(path *Path) error {
 	return nil
 }
 
+func (r *AdjRibIn) GetAll() []*Path {
+	pathes := make([]*Path, 0)
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	for _, routes := range r.table {
+		for _, route := range routes {
+			pathes = append(pathes, route)
+		}
+	}
+	sort.Slice(pathes, func(i, j int) bool {
+		return pathes[i].nlri.String() < pathes[j].nlri.String()
+	})
+	return pathes
+}
+
 func (r *AdjRibIn) Lookup(prefix *Prefix) []*Path {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
@@ -74,6 +90,23 @@ func (r *AdjRibIn) LookupById(id int) *Path {
 	return nil
 }
 
+func (r *AdjRibIn) LookupByPeer(peerId int) []*Path {
+	pathes := make([]*Path, 0)
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	for _, network := range r.table {
+		for _, path := range network {
+			if path.local {
+				continue
+			}
+			if path.info.id == peerId {
+				pathes = append(pathes, path)
+			}
+		}
+	}
+	return pathes
+}
+
 func (r *AdjRibIn) Drop(prefix *Prefix, id int, next net.IP, asSequence []uint16) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -94,6 +127,18 @@ func (r *AdjRibIn) Drop(prefix *Prefix, id int, next net.IP, asSequence []uint16
 					delete(r.table[prefix.String()], i)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+func (r *AdjRibIn) DropById(prefix *Prefix, id int) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	for k := range r.table {
+		if k == prefix.String() {
+			delete(r.table[prefix.String()], id)
+			return nil
 		}
 	}
 	return nil
@@ -135,6 +180,9 @@ func (r *AdjRibIn) Calculate(nlri *Prefix, bestPathConfig *BestPathConfig) (Best
 	pathes := r.Lookup(nlri)
 	if pathes == nil {
 		return REASON_INVALID, nil, fmt.Errorf("Peer_Calculate: path is not found for %s", nlri)
+	}
+	if len(pathes) == 0 {
+		return REASON_NO_PATH, nil, nil
 	}
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -182,15 +230,17 @@ func (r *AdjRibIn) Calculate(nlri *Prefix, bestPathConfig *BestPathConfig) (Best
 // implementations MUST take care that, before any packets are forwarded along a BGP route,
 // its associated NEXT_HOP address is resolved to the immediate (directly connected) next-hop address, and that this address (or multiple addresses) is finally used for actual packet forwarding.
 func (r *AdjRibIn) Select(as int, path *Path, withdrawn bool, bestPathConfig *BestPathConfig) (BestPathSelectionReason, *Path, error) {
-	if !path.local && path.asPath.Contains(as) {
-		return 0, nil, nil
-	}
-	if path.asPath.CheckLoop() {
-		return 0, nil, fmt.Errorf("AdjRibIn_Select: detect AS loop %v for %s", path.asPath.GetSequence(), path.nlri)
-	}
-	// Insert into Adj-Rib-In
-	if err := r.Insert(path); err != nil {
-		return 0, nil, fmt.Errorf("AdjRibIn_Select: %w", err)
+	if !withdrawn {
+		if !path.local && path.asPath.Contains(as) {
+			return 0, nil, nil
+		}
+		if path.asPath.CheckLoop() {
+			return 0, nil, fmt.Errorf("AdjRibIn_Select: detect AS loop %v for %s", path.asPath.GetSequence(), path.nlri)
+		}
+		// Insert into Adj-Rib-In
+		if err := r.Insert(path); err != nil {
+			return 0, nil, fmt.Errorf("AdjRibIn_Select: %w", err)
+		}
 	}
 
 	reason, bestPath, err := r.Calculate(path.nlri, bestPathConfig)
@@ -245,7 +295,8 @@ func (r *AdjRibOut) GroupByPathAttributes() [][]*Path {
 type AdjRib struct {
 	// Adj-RIB-In: The Adj-RIB-In store routing information that has been learned from inbound UPDATE messages.
 	// 	           Their contents represent routes that are available as an input to the Decision Process.
-	In *AdjRibIn
+	In       *AdjRibIn
+	received []int
 	// Adj-RIB-Out: The Adj-RIB-Out store the information that the local routing information that the BGP speaker has selected
 	//              for advertisement to its peers.
 	//              The routing information stored in the Adj-RIB-Out will be carried in the local BGP speaker's UPDATE messages and advertised to its peers.
@@ -254,8 +305,9 @@ type AdjRib struct {
 
 func newAdjRib() (*AdjRib, error) {
 	return &AdjRib{
-		In:  &AdjRibIn{mutex: &sync.RWMutex{}, table: make(map[string]map[int]*Path)},
-		Out: &AdjRibOut{mutex: &sync.RWMutex{}, table: make(map[string]*Path)},
+		In:       &AdjRibIn{mutex: &sync.RWMutex{}, table: make(map[string]map[int]*Path)},
+		received: make([]int, 0),
+		Out:      &AdjRibOut{mutex: &sync.RWMutex{}, table: make(map[string]*Path)},
 	}, nil
 }
 
@@ -264,29 +316,43 @@ func newAdjRib() (*AdjRib, error) {
 type LocRib struct {
 	mutex *sync.RWMutex
 	table map[string]*Path
-	queue chan []*Path
+	queue chan locRibRequest
+}
+
+type locRibRequest struct {
+	pathes   []*Path
+	withdraw bool
 }
 
 func NewLocRib() *LocRib {
 	return &LocRib{
 		mutex: &sync.RWMutex{},
 		table: make(map[string]*Path),
-		queue: make(chan []*Path, 128),
+		queue: make(chan locRibRequest, 128),
 	}
 }
 
-func (l *LocRib) enqueue(pathes []*Path) {
-	l.queue <- pathes
+func (l *LocRib) enqueue(pathes []*Path, withdraw bool) {
+	l.queue <- locRibRequest{pathes: pathes, withdraw: withdraw}
 }
 
 func (l *LocRib) Insert(path *Path) error {
 	l.mutex.Lock()
 	l.table[path.nlri.String()] = path
 	l.mutex.Unlock()
-	if path.local {
-		// if the given path is originated by local, don't insert into route table
-		return nil
+	return nil
+}
+
+func (l *LocRib) Drop(path *Path) error {
+	l.mutex.Lock()
+	target, ok := l.table[path.nlri.String()]
+	if !ok {
+		return fmt.Errorf("path to %s is not found.", path.nlri.String())
 	}
+	if target.id != path.id {
+		return fmt.Errorf("path identifier is not matched.")
+	}
+	l.mutex.Unlock()
 	return nil
 }
 

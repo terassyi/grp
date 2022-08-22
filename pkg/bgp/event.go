@@ -40,6 +40,8 @@ const (
 
 	event_type_trigger_decision_process eventType = iota + 1
 	event_type_trigger_dissemination    eventType = iota + 1
+
+	event_type_propagete_message eventType = iota + 1
 )
 
 func (t eventType) String() string {
@@ -74,6 +76,8 @@ func (t eventType) String() string {
 		return "Trigger decision process"
 	case event_type_trigger_dissemination:
 		return "Trigger dissemination"
+	case event_type_propagete_message:
+		return "Propagate message"
 	default:
 		return "Unknown event type"
 	}
@@ -121,6 +125,10 @@ type triggerDecisionProcess struct {
 type triggerDissemination struct {
 	pathes    []*Path
 	withdrawn bool
+}
+
+type propagateMsg struct {
+	msg *Packet
 }
 
 func (*bgpStart) typ() eventType {
@@ -181,4 +189,8 @@ func (*triggerDecisionProcess) typ() eventType {
 
 func (*triggerDissemination) typ() eventType {
 	return event_type_trigger_dissemination
+}
+
+func (*propagateMsg) typ() eventType {
+	return event_type_propagete_message
 }
